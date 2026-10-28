@@ -161,10 +161,13 @@ export async function convertExisting(
   const buf = await res.arrayBuffer()
 
   const { numPages, pages, thumbJpg } = await render(buf, (d, t) => onStatus(`페이지 변환 중 ${d} / ${t}`, d / t * 0.5))
-  const uploaded = await uploadPages(supabase, fb.slug, pages, (d, t) =>
+  // Storage folder = row id (ASCII UUID). Legacy slugs can contain Korean, and Supabase
+  // Storage rejects such object keys with 400. The public slug (URL) stays unchanged.
+  const folder = fb.id
+  const uploaded = await uploadPages(supabase, folder, pages, (d, t) =>
     onStatus(`이미지 업로드 중 ${d} / ${t}`, 0.5 + (d / t) * 0.45)
   )
-  const thumbUrl = await uploadThumb(supabase, fb.slug, thumbJpg)
+  const thumbUrl = await uploadThumb(supabase, folder, thumbJpg)
 
   await insertPages(supabase, fb.id, uploaded)
   const { error } = await supabase
