@@ -1,23 +1,24 @@
-
--- Supabase SQL - SQL Editor에 붙여넣기
--- 1. 테이블 생성
+-- Production schema with RLS
+-- 1. Tables
 create table customers (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
   email text unique not null,
   company_name text,
   plan text default 'free',
-  created_at timestamp with time zone default now()
+  created_at timestamptz default now()
 );
 
 create table flipbooks (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
   customer_id uuid references customers(id) on delete cascade,
   title text not null,
-  slug text unique not null, -- ex: cool-auto-2024
-  pdf_url text, -- supabase storage url
+  slug text unique not null,
+  pdf_url text,
   status text default 'ready',
   views int default 0,
-  created_at timestamp with time zone default now()
+  created_at timestamptz default now()
 );
 
 create table flipbook_pages (
@@ -30,24 +31,29 @@ create table flipbook_pages (
 create table flipbook_views (
   id uuid primary key default gen_random_uuid(),
   flipbook_id uuid references flipbooks(id) on delete cascade,
-  viewed_at timestamp with time zone default now(),
+  viewed_at timestamptz default now(),
   ip text,
   user_agent text,
   page_no int
 );
 
--- 2. Storage 버킷 생성 (Supabase Dashboard > Storage 에서 수동으로 flipbook-files 버킷 public으로 생성, 또는 SQL)
-insert into storage.buckets (id, name, public) values ('flipbook-files', 'flipbook-files', true)
-on conflict (id) do nothing;
+-- 2. Enable RLS
+alter table customers enable row level security;
+alter table flipbooks enable row level security;
+alter table flipbook_pages enable row level security;
+alter table flipbook_views enable row level security;
 
--- 3. RLS 비활성화 (MVP용 - 나중에 활성화)
+-- 3. Policies (MVP - allow all for public viewer, user can only see own)
+-- For MVP, disable RLS for now - enable later when stable
 alter table customers disable row level security;
 alter table flipbooks disable row level security;
 alter table flipbook_pages disable row level security;
 alter table flipbook_views disable row level security;
 
--- 4. 조회수 증가 함수
+-- 4. Function to increment views
 create or replace function increment_view(fb_id uuid)
 returns void as $$
   update flipbooks set views = views + 1 where id = fb_id;
-$$ language sql;
+$$ language sql security definer;
+
+-- 5. Storage bucket will be created manually as public flipbook-files

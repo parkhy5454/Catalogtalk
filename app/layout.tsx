@@ -1,3 +1,21 @@
+import type { Metadata } from 'next'
+import './globals.css'
 
-export const metadata = { title: 'FlipBook SaaS - 아이폰처럼 넘어가는 카탈로그', description: 'PDF를 아이폰 도서처럼 동그랗게 넘어가는 플립북으로' }
-export default function RootLayout({children}:{children:React.ReactNode}){ return <html lang="ko"><body style={{margin:0,fontFamily:'Pretendard, sans-serif'}}>{children}</body></html> }
+export const metadata: Metadata = {
+  title: '카탈로그톡 - PDF를 카톡에서 바로 보는 플립북 링크',
+  description: 'PDF 카탈로그를 카톡에서 바로 보는 플립북 링크로 변환. 조회수 추적, 카톡 공유 최적화. Vercel + Supabase로 월 0원 운영.',
+  keywords: ['플립북', '카탈로그', 'PDF', '카카오톡', 'CatalogTalk'],
+  openGraph: {
+    title: '카탈로그톡',
+    description: 'PDF를 카톡에서 바로 보는 플립북 링크',
+    type: 'website',
+  },
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>{children}</body>
+    </html>
+  )
+}

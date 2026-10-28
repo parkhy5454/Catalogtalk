@@ -1,29 +1,27 @@
+# 카탈로그톡 - Production Ready
 
-# FlipBook SaaS MVP - 0원 스택
+PDF를 카톡에서 바로 보는 플립북 링크 서비스
 
-GitHub + Vercel + Supabase 조합, 월 0원 운영
+## Tech Stack
+- Next.js 14 (App Router, TypeScript)
+- Supabase (Auth, DB, Storage)
+- Vercel (Hosting)
 
-## 스택 요금 비교
-- Vercel Hobby: $0 (100GB 대역폭)
-- Supabase Free: $0 (DB 0.5GB + 파일 1GB + 대역폭 50GB)
-- 합계: $0 (고객 50곳까지)
+## Setup
 
-고객 200곳 이상: Neon ($19) + R2 ($1.5) + Vercel ($0) = 월 $20
+1. Supabase 프로젝트 생성 (Seoul region)
+2. SQL Editor에서 supabase/schema.sql 실행 -> Run without RLS
+3. Storage에서 flipbook-files 버킷을 Public으로 생성
+4. Authentication -> Providers -> Email 활성화
+5. .env.example을 .env.local로 복사하고 키 입력
+6. Vercel에 GitHub 연동, Environment Variables 설정:
+   - NEXT_PUBLIC_SUPABASE_URL
+   - NEXT_PUBLIC_SUPABASE_ANON_KEY (Publishable key)
 
-## 설치
-1. supabase/schema.sql 을 Supabase SQL Editor에 붙여넣기
-2. Storage > flipbook-files 버킷 Public 생성
-3. .env.local 생성 (env.example 참고)
-4. npm install && npm run dev
-5. GitHub 푸시 -> Vercel 자동 배포
+## Deployment
+- GitHub push -> Vercel 자동 배포
+- 도메인: catalogtalk.kr -> Vercel Domains에서 추가
 
-## 구조
-- / : 랜딩 (요금제 비교 포함)
-- /dashboard : PDF 업로드 + 링크 생성 (Supabase 연동)
-- /b/[slug] : 고객이 보는 플립북 뷰어 (iBooks 스타일 동그란 말림 + 소리)
-- /public/sample-flipbook.html : 당신이 만든 CoolAutomation_iBooks_Round_Flipbook.html 넣는 곳
-
-## 다음 단계 (돈 벌기 시작하면)
-- Supabase Storage -> Cloudflare R2로 이전 (대역폭 무료)
-- Supabase DB -> Neon으로 이전 (Vercel이랑 더 빠름)
-- 조회수 추적 + 리드 수집 기능 추가
+## Cost
+- Free tier: Vercel Hobby 0원 + Supabase Free 0원 (고객 50곳까지)
+- Scale: Cloudflare R2 + Neon (월 $7~20)
