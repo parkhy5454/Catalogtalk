@@ -64,11 +64,6 @@ export default function DashboardPage() {
 
   return (
     <div style={{minHeight:'100vh', background:'#F5F5F0'}}>
-      {user?.email === 'parkhy5454@gmail.com' && (
-        <div style={{background:'#FEE500', padding:'10px 20px', textAlign:'center', fontSize:'13px', fontWeight:700}}>
-          👑 관리자님! <a href="/dashboard/admin" style={{color:'black', textDecoration:'underline', marginLeft:'8px'}}>가입자 관리 보기</a> | <a href="/dashboard/profile" style={{color:'black', textDecoration:'underline', marginLeft:'8px'}}>내 정보</a>
-        </div>
-      )}
       <header style={{background:'white', borderBottom:'1px solid #eee', padding:'14px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:10}}>
         <Link href="/" style={{display:'flex', alignItems:'center', gap:'10px', textDecoration:'none', color:'black'}}>
           <div style={{width:'32px', height:'32px', background:'#FEE500', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900}}>C</div>

@@ -7,13 +7,16 @@ export const dynamic = 'force-dynamic'
 export default async function AdminPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+
   if (!user) redirect('/login')
 
+  // 관리자 체크 - 배포자 이메일만 허용
   const ADMIN_EMAILS = ['parkhy5454@gmail.com', 'modio_korea@naver.com']
   if (!ADMIN_EMAILS.includes(user.email || '')) {
     redirect('/dashboard')
   }
 
+  // Service role로 유저 목록 가져오기
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,7 +39,7 @@ export default async function AdminPage() {
 
         {error && (
           <div style={{ background: '#FFE8E8', color: '#D32F2F', padding: '16px', borderRadius: '12px', marginBottom: '20px' }}>
-            에러: {error.message} <br/> Vercel에 SUPABASE_SERVICE_ROLE_KEY 환경변수를 추가하세요.
+            에러: {error.message} <br/> Vercel에 SUPABASE_SERVICE_ROLE_KEY 환경변수를 추가해야 합니다.
           </div>
         )}
 
@@ -48,7 +51,7 @@ export default async function AdminPage() {
                   <th style={{ padding: '14px 20px', fontWeight: '700' }}>이메일</th>
                   <th style={{ padding: '14px 20px', fontWeight: '700' }}>가입일</th>
                   <th style={{ padding: '14px 20px', fontWeight: '700' }}>최근 로그인</th>
-                  <th style={{ padding: '14px 20px', fontWeight: '700' }}>인증</th>
+                  <th style={{ padding: '14px 20px', fontWeight: '700' }}>인증 상태</th>
                   <th style={{ padding: '14px 20px', fontWeight: '700' }}>ID</th>
                 </tr>
               </thead>
@@ -73,7 +76,7 @@ export default async function AdminPage() {
         </div>
 
         <div style={{ marginTop: '20px', background: '#FFF9C4', padding: '16px', borderRadius: '12px', fontSize: '13px', color: '#5D4037' }}>
-          💡 Vercel → Settings → Environment Variables → SUPABASE_SERVICE_ROLE_KEY에 sb_secret_... 값을 추가해야 전체 목록이 보입니다.
+          💡 <b>팁:</b> Vercel → Settings → Environment Variables → <b>SUPABASE_SERVICE_ROLE_KEY</b>에 <code>sb_secret_...</code> 값을 추가하면 전체 유저 목록이 보입니다. 지금은 ANON_KEY로도 일부 정보가 보일 수 있습니다.
         </div>
       </div>
     </div>
