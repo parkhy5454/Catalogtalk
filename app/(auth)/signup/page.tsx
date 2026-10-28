@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { scrollIntoViewOnFocus } from '@/lib/ui'
 
 export default function SignupPage() {
   const [email, setEmail] = useState('')
@@ -10,6 +11,7 @@ export default function SignupPage() {
   const [company, setCompany] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
@@ -17,49 +19,93 @@ export default function SignupPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setInfo('')
+    // The customers row is created by a database trigger (see schema.sql),
+    // so no client-side insert is needed here.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { company_name: company } }
+      options: { data: { company_name: company } },
     })
     if (error) {
       setError(error.message)
       setLoading(false)
       return
     }
-    if (data.user) {
-      try {
-        await supabase.from('customers').insert({ email, company_name: company, user_id: data.user.id })
-      } catch {}
+    if (data.session) {
+      router.push('/dashboard')
+      router.refresh()
+    } else {
+      // Email confirmation is enabled in Supabase: there is no session yet.
+      setLoading(false)
+      setInfo('📧 가입 확인 메일을 보냈어요. 메일의 링크를 누른 뒤 로그인해 주세요.')
     }
-    router.push('/dashboard')
   }
 
   return (
-    <div style={{minHeight:'100vh', display:'flex', background:'#FEE500'}}>
-      <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px'}}>
-        <div style={{background:'white', borderRadius:'24px', padding:'36px 28px', width:'100%', maxWidth:'380px', boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
-          <div style={{textAlign:'center', marginBottom:'28px'}}>
-            <div style={{display:'inline-flex', alignItems:'center', gap:'6px', background:'black', color:'white', borderRadius:'20px', padding:'6px 12px', fontSize:'11px', fontWeight:700, marginBottom:'12px'}}>
-              <span style={{width:'6px', height:'6px', background:'#4ade80', borderRadius:'50%', display:'inline-block'}}></span>
-              지금 가입하면 첫 달 무료
-            </div>
-            <h1 style={{fontSize:'24px', fontWeight:900, margin:'0 0 6px', lineHeight:'1.2'}}>카탈로그를<br/>카톡처럼 보내세요</h1>
-            <p style={{color:'#888', fontSize:'13px', margin:0}}>PDF를 올리면 3초 만에 플립북 링크 완성</p>
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-head">
+          <div className="hero-tag" style={{ background: '#111', color: '#fff', fontSize: 11, padding: '6px 12px', marginBottom: 12 }}>
+            <span style={{ color: '#4ade80' }}>●</span> 지금 가입하면 첫 달 무료
           </div>
+          <h1>카탈로그를<br />카톡처럼 보내세요</h1>
+          <p>PDF를 올리면 3초 만에 플립북 링크 완성</p>
+        </div>
 
-          {error && <div style={{background:'#fee', border:'1px solid #fcc', borderRadius:'10px', padding:'10px 12px', fontSize:'13px', color:'#c00', marginBottom:'16px'}}>{error}</div>}
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
+        {info && <div className="notice notice-success" role="status">{info}</div>}
 
-          <form onSubmit={handleSignup} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-            <input value={company} onChange={e=>setCompany(e.target.value)} placeholder="회사명 (선택)" style={{width:'100%', border:'1.5px solid #eee', borderRadius:'12px', padding:'14px 16px', fontSize:'16px', outline:'none'}} />
-            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="업무용 이메일" type="email" required style={{width:'100%', border:'1.5px solid #eee', borderRadius:'12px', padding:'14px 16px', fontSize:'16px', outline:'none'}} />
-            <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호 (6자 이상)" type="password" required minLength={6} style={{width:'100%', border:'1.5px solid #eee', borderRadius:'12px', padding:'14px 16px', fontSize:'16px', outline:'none'}} />
-            <button disabled={loading} type="submit" style={{width:'100%', background:'black', color:'white', borderRadius:'12px', padding:'14px', fontWeight:700, fontSize:'15px', border:'none', cursor:'pointer', marginTop:'8px'}}>{loading ? '가입 중...' : '무료로 시작하기'}</button>
+        {!info && (
+          <form onSubmit={handleSignup} className="form-stack" style={{ marginTop: error ? 16 : 0 }}>
+            <label className="field">
+              <span className="sr-only">회사명</span>
+              <input
+                className="input"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="회사명 (선택)"
+                autoComplete="organization"
+              />
+            </label>
+            <label className="field">
+              <span className="sr-only">업무용 이메일</span>
+              <input
+                className="input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="업무용 이메일"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                required
+              />
+            </label>
+            <label className="field">
+              <span className="sr-only">비밀번호</span>
+              <input
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="비밀번호 (6자 이상)"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={6}
+              />
+            </label>
+            <button disabled={loading} type="submit" className="btn btn-primary btn-block" style={{ marginTop: 4 }}>
+              {loading ? '가입 중...' : '무료로 시작하기'}
+            </button>
           </form>
+        )}
 
-          <div style={{textAlign:'center', marginTop:'22px', fontSize:'14px', color:'#666'}}>
-            이미 계정이 있나요? <Link href="/login" style={{color:'black', fontWeight:800}}>로그인</Link>
-          </div>
+        <div className="auth-foot">
+          이미 계정이 있나요? <Link href="/login">로그인</Link>
         </div>
       </div>
     </div>

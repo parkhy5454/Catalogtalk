@@ -1,45 +1,100 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { scrollIntoViewOnFocus } from '@/lib/ui'
 
 export default function ProfilePage() {
-  const [user, setUser] = useState<any>(null)
+  const [email, setEmail] = useState('')
+  const [createdAt, setCreatedAt] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [msg, setMsg] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUser(data.user)) }, [])
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setEmail(data.user?.email ?? '')
+      setCreatedAt(data.user?.created_at ?? '')
+    })
+    // supabase is stable for the lifetime of the page
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const updatePassword = async () => {
-    if (newPassword.length < 6) { setMsg('비밀번호는 6자 이상이어야 해요'); return }
+  const updatePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newPassword.length < 6) {
+      setMsg({ ok: false, text: '비밀번호는 6자 이상이어야 해요' })
+      return
+    }
+    setSaving(true)
     const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) setMsg('오류: ' + error.message)
-    else { setMsg('✅ 비밀번호가 변경되었어요!'); setNewPassword('') }
+    setSaving(false)
+    if (error) setMsg({ ok: false, text: '오류: ' + error.message })
+    else {
+      setMsg({ ok: true, text: '✅ 비밀번호가 변경되었어요!' })
+      setNewPassword('')
+    }
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#FEE500', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
-      <div style={{ background: '#fff', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '420px', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 20px 0' }}>내 정보</h1>
-        <div style={{ background: '#FAFAFA', padding: '16px', borderRadius: '12px', marginBottom: '20px' }}>
-          <div style={{ fontSize: '13px', color: '#999', marginBottom: '4px' }}>이메일</div>
-          <div style={{ fontWeight: '700' }}>{user?.email}</div>
-          <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>가입일: {user?.created_at ? new Date(user.created_at).toLocaleDateString('ko-KR') : '-'}</div>
+    <div className="page">
+      <main className="container section">
+        <div className="panel profile-card">
+          <h1 className="panel-title" style={{ marginBottom: 20 }}>내 정보</h1>
+
+          <div className="info-box">
+            <div className="info-label">이메일</div>
+            <div className="info-value">{email || '-'}</div>
+            <div className="info-label" style={{ marginTop: 10 }}>가입일</div>
+            <div className="info-value" style={{ fontWeight: 500 }}>
+              {createdAt ? new Date(createdAt).toLocaleDateString('ko-KR') : '-'}
+            </div>
+          </div>
+
+          <form onSubmit={updatePassword} className="form-stack">
+            <label className="field">
+              <span className="field-label">새 비밀번호</span>
+              <input
+                className="input"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="6자 이상 입력"
+                autoComplete="new-password"
+                minLength={6}
+              />
+            </label>
+            <button type="submit" disabled={saving} className="btn btn-primary btn-block">
+              {saving ? '변경 중...' : '비밀번호 변경'}
+            </button>
+          </form>
+
+          {msg && (
+            <div className={`notice ${msg.ok ? 'notice-success' : 'notice-error'}`} role="status" style={{ marginTop: 16 }}>
+              {msg.text}
+            </div>
+          )}
+
+          <div className="btn-row" style={{ marginTop: 20 }}>
+            <Link href="/dashboard" className="btn btn-ghost">대시보드</Link>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                await supabase.auth.signOut()
+                router.replace('/login')
+                router.refresh()
+              }}
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ fontSize: '13px', fontWeight: '600', display: 'block', marginBottom: '8px' }}>새 비밀번호</label>
-          <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="6자 이상 입력"
-            style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid #E0E0E0', fontSize: '14px', boxSizing: 'border-box' }} />
-          <button onClick={updatePassword} style={{ width: '100%', marginTop: '10px', background: '#111', color: '#fff', border: 'none', padding: '12px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>비밀번호 변경</button>
-        </div>
-        {msg && <div style={{ padding: '12px', borderRadius: '10px', background: msg.includes('✅') ? '#E8F5E9' : '#FFEBEE', color: msg.includes('✅') ? '#2E7D32' : '#D32F2F', fontSize: '13px', marginBottom: '16px' }}>{msg}</div>}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <a href="/dashboard" style={{ flex: 1, textAlign: 'center', background: '#F5F5F5', padding: '12px', borderRadius: '10px', textDecoration: 'none', color: '#111', fontWeight: '600', fontSize: '14px' }}>대시보드</a>
-          <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }} style={{ flex: 1, background: '#fff', border: '1px solid #E0E0E0', padding: '12px', borderRadius: '10px', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>로그아웃</button>
-        </div>
-      </div>
+      </main>
     </div>
   )
 }
