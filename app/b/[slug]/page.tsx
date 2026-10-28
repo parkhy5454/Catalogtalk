@@ -1,38 +1,88 @@
-'use client'
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useParams } from 'next/navigation'
+// Server component: builds OpenGraph tags on the server so KakaoTalk / Facebook /
+// Slack crawlers (which do not run JavaScript) can read title, description and image.
+import type { Metadata } from 'next'
+import { createAnonClient } from '@/lib/supabase/anon'
+import { SITE_NAME, SITE_URL } from '@/lib/site'
+import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
+import Viewer from './viewer'
 
-export default function ViewerPage() {
-  const params = useParams()
-  const slug = params.slug as string
-  const [flipbook, setFlipbook] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+export const revalidate = 60
 
-  useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase.from('flipbooks').select('*').eq('slug', slug).single()
-      if (data) {
-        setFlipbook(data)
-        // views increment
-        supabase.rpc('increment_view', { fb_id: data.id })
-        supabase.from('flipbook_views').insert({ flipbook_id: data.id })
-      }
-      setLoading(false)
-    }
-    fetch()
-  }, [slug])
+type Props = { params: { slug: string } }
 
-  if (loading) return <div style={{display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh'}}>로딩 중...</div>
-  if (!flipbook) return <div style={{display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh'}}>플립북을 찾을 수 없어요</div>
+function decodeSlug(raw: string) {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
 
-  return (
-    <div style={{minHeight:'100vh', background:'#111'}}>
-      <iframe src={flipbook.pdf_url} style={{width:'100%', height:'100vh', border:'none'}} title={flipbook.title} />
-      <div style={{position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.8)', color:'white', padding:'8px 16px', borderRadius:'20px', fontSize:'12px'}}>
-        {flipbook.title} • 조회수 {flipbook.views}회
+async function loadFlipbook(slug: string): Promise<FlipbookPublic | null> {
+  const { data, error } = await createAnonClient().rpc('get_flipbook', { p_slug: slug })
+  if (error || !Array.isArray(data) || data.length === 0) return null
+  return data[0] as FlipbookPublic
+}
+
+async function loadPages(flipbookId: string): Promise<PageImage[]> {
+  const { data, error } = await createAnonClient()
+    .from('flipbook_pages')
+    .select('page_no, image_url')
+    .eq('flipbook_id', flipbookId)
+    .order('page_no', { ascending: true })
+  if (error || !data) return []
+  return data as PageImage[]
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const slug = decodeSlug(params.slug)
+  const fb = await loadFlipbook(slug)
+  if (!fb) {
+    return { title: '플립북을 찾을 수 없어요', robots: { index: false, follow: false } }
+  }
+
+  const url = `${SITE_URL}/b/${fb.slug}`
+  const description = fb.page_count
+    ? `${fb.page_count}쪽 카탈로그 · 카톡에서 바로 넘겨 보세요`
+    : '카톡에서 바로 넘겨 보는 카탈로그'
+  const image = fb.thumb_url
+
+  return {
+    title: fb.title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title: fb.title,
+      description,
+      url,
+      siteName: SITE_NAME,
+      type: 'website',
+      locale: 'ko_KR',
+      images: image ? [{ url: image, alt: fb.title }] : undefined,
+    },
+    twitter: {
+      card: image ? 'summary_large_image' : 'summary',
+      title: fb.title,
+      description,
+      images: image ? [image] : undefined,
+    },
+  }
+}
+
+export default async function ViewerPage({ params }: Props) {
+  const slug = decodeSlug(params.slug)
+  const fb = await loadFlipbook(slug)
+  if (!fb) {
+    return (
+      <div className="viewer">
+        <div className="viewer-empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <div>플립북을 찾을 수 없어요</div>
+          <a href="/" className="btn btn-white">홈으로</a>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  const pages = await loadPages(fb.id)
+  return <Viewer flipbook={fb} pages={pages} />
 }

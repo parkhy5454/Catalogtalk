@@ -3,12 +3,14 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { scrollIntoViewOnFocus } from '@/lib/ui'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
@@ -16,54 +18,95 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setInfo('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setError(error.message)
       setLoading(false)
     } else {
       router.push('/dashboard')
+      router.refresh()
     }
   }
 
   const handleMagicLink = async () => {
-    if (!email) { setError('이메일을 입력하세요'); return }
+    if (!email) {
+      setError('이메일을 입력하세요')
+      return
+    }
     setLoading(true)
     setError('')
+    setInfo('')
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/dashboard` }
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
     })
     setLoading(false)
     if (error) setError(error.message)
-    else alert('📧 이메일로 로그인 링크를 보냈어요!')
+    else setInfo('📧 이메일로 로그인 링크를 보냈어요! 메일함을 확인해 주세요.')
   }
 
   return (
-    <div style={{minHeight:'100vh', display:'flex', background:'#FEE500'}}>
-      <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px'}}>
-        <div style={{background:'white', borderRadius:'24px', padding:'36px 28px', width:'100%', maxWidth:'380px', boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
-          <div style={{textAlign:'center', marginBottom:'28px'}}>
-            <div style={{width:'56px', height:'56px', background:'black', borderRadius:'16px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px', fontSize:'28px'}}>📖</div>
-            <h1 style={{fontSize:'26px', fontWeight:900, margin:'0 0 6px'}}>로그인</h1>
-            <p style={{color:'#888', fontSize:'14px', margin:0}}>카탈로그톡 대시보드</p>
-          </div>
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-head">
+          <div className="auth-icon" aria-hidden="true">📖</div>
+          <h1>로그인</h1>
+          <p>카탈로그톡 대시보드</p>
+        </div>
 
-          {error && <div style={{background:'#fee', border:'1px solid #fcc', borderRadius:'10px', padding:'10px 12px', fontSize:'13px', color:'#c00', marginBottom:'16px'}}>{error}</div>}
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
+        {info && <div className="notice notice-success" role="status">{info}</div>}
 
-          <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="이메일 주소" type="email" required style={{width:'100%', border:'1.5px solid #eee', borderRadius:'12px', padding:'14px 16px', fontSize:'16px', outline:'none'}} />
-            <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호" type="password" required style={{width:'100%', border:'1.5px solid #eee', borderRadius:'12px', padding:'14px 16px', fontSize:'16px', outline:'none'}} />
-            <button disabled={loading} type="submit" style={{width:'100%', background:'black', color:'white', borderRadius:'12px', padding:'14px', fontWeight:700, fontSize:'15px', border:'none', cursor:'pointer', marginTop:'8px'}}>{loading ? '로그인 중...' : '로그인'}</button>
-          </form>
+        <form onSubmit={handleLogin} className="form-stack" style={{ marginTop: error || info ? 16 : 0 }}>
+          <label className="field">
+            <span className="field-label">이메일</span>
+            <input
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onFocus={scrollIntoViewOnFocus}
+              placeholder="이메일 주소"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              required
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">비밀번호</span>
+            <input
+              className="input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onFocus={scrollIntoViewOnFocus}
+              placeholder="비밀번호"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          <button disabled={loading} type="submit" className="btn btn-primary btn-block">
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
+        </form>
 
-          <button onClick={handleMagicLink} disabled={loading} style={{width:'100%', marginTop:'10px', border:'1.5px solid #eee', background:'white', borderRadius:'12px', padding:'13px', fontSize:'13px', cursor:'pointer', fontWeight:600}}>✉️ 이메일 링크로 로그인</button>
+        <button
+          type="button"
+          onClick={handleMagicLink}
+          disabled={loading}
+          className="btn btn-ghost btn-block"
+          style={{ marginTop: 8 }}
+        >
+          ✉️ 이메일 링크로 로그인
+        </button>
 
-          <div style={{textAlign:'center', marginTop:'22px', fontSize:'14px', color:'#666'}}>
-            계정이 없나요? <Link href="/signup" style={{color:'black', fontWeight:800}}>회원가입</Link>
-          </div>
-          <div style={{textAlign:'center', marginTop:'10px'}}>
-            <Link href="/" style={{color:'#aaa', fontSize:'13px', textDecoration:'none'}}>← 홈으로</Link>
-          </div>
+        <div className="auth-foot">
+          계정이 없나요? <Link href="/signup">회원가입</Link>
+        </div>
+        <div className="center">
+          <Link href="/" className="link-quiet">← 홈으로</Link>
         </div>
       </div>
     </div>
