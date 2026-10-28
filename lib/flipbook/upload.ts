@@ -177,3 +177,44 @@ export async function convertExisting(
   if (error) throw error
   onStatus('완료!', 1)
 }
+
+/** Storage path (inside the bucket) for a public URL created by publicUrl(). */
+function pathFromPublicUrl(url: string | null): string | null {
+  if (!url) return null
+  const marker = `/${BUCKET}/`
+  const i = url.indexOf(marker)
+  if (i < 0) return null
+  try {
+    return decodeURIComponent(url.slice(i + marker.length).split('?')[0])
+  } catch {
+    return null
+  }
+}
+
+/** List every file under a folder in the bucket (best effort). */
+async function listFolder(supabase: SupabaseClient, folder: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(BUCKET).list(folder, { limit: 1000 })
+  if (error || !data) return []
+  return data.filter((f) => f.name && f.id !== null).map((f) => `${folder}/${f.name}`)
+}
+
+/**
+ * Delete a flipbook: its database row (pages and view logs cascade) and its files in storage.
+ * The DB delete is authoritative; storage cleanup is best effort so a leftover file
+ * never blocks removing the catalog from the list.
+ */
+export async function deleteFlipbook(supabase: SupabaseClient, fb: FlipbookRow): Promise<void> {
+  const { error } = await supabase.from('flipbooks').delete().eq('id', fb.id)
+  if (error) throw error
+
+  const paths: string[] = []
+  for (const folder of [fb.slug, fb.id]) {
+    paths.push(...(await listFolder(supabase, folder)))
+  }
+  const original = pathFromPublicUrl(fb.pdf_url)
+  if (original) paths.push(original) // legacy PDFs sit at the bucket root
+  const unique = paths.filter((p, i) => paths.indexOf(p) === i)
+  if (unique.length > 0) {
+    await supabase.storage.from(BUCKET).remove(unique).catch(() => undefined)
+  }
+}

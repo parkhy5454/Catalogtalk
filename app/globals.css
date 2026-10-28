@@ -492,6 +492,8 @@ button {
   min-width: 0;
 }
 .fb-actions .btn { flex: 1 1 0; min-width: 0; }
+.fb-actions-row { display: flex; gap: 8px; }
+.fb-actions-row .btn { flex: 1 1 0; min-width: 0; }
 
 .empty {
   text-align: center;
@@ -756,4 +758,110 @@ button {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- Page-turn book (page-flip) ---------- */
+.viewer-top-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.viewer-pill { min-height: var(--touch); min-width: var(--touch); padding: 0 14px; font-size: 14px; }
+
+.book-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+/* The library sizes itself from its parent, so the host needs a definite box. */
+.book-host {
+  position: absolute;
+  inset: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.book-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.zoom-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  margin-left: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  vertical-align: middle;
+}
+.zoom-open:active { transform: scale(0.98); background: rgba(255, 255, 255, 0.26); }
+
+.zoom-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.96);
+  display: flex;
+  flex-direction: column;
+}
+.zoom-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: var(--gutter);
+  z-index: 2;
+  min-height: var(--touch);
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.zoom-close:active { transform: scale(0.98); }
+.zoom-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+.zoom-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.zoom-hint {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  padding: 10px var(--gutter);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+/* page-flip paints a white wrapper; keep the book area transparent over the dark viewer. */
+.book-host,
+.book-host * {
+  background-color: transparent;
 }

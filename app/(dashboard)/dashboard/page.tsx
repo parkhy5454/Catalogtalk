@@ -8,6 +8,7 @@ import { SITE_NAME } from '@/lib/site'
 import {
   convertExisting,
   createFlipbook,
+  deleteFlipbook,
   type FlipbookRow,
   MAX_PDF_BYTES,
 } from '@/lib/flipbook/upload'
@@ -145,6 +146,21 @@ export default function DashboardPage() {
       setConvertingId(null)
       setStatus('')
       setProgress(0)
+    }
+  }
+
+  const handleDelete = async (fb: FlipbookRow) => {
+    const ok = window.confirm(
+      `"${fb.title}"을(를) 삭제할까요?\n삭제하면 링크(/b/${fb.slug})가 더 이상 열리지 않아요.`
+    )
+    if (!ok || !userId) return
+    setMessage(null)
+    try {
+      await deleteFlipbook(supabase, fb)
+      await fetchFlipbooks(userId)
+      setMessage({ kind: 'success', text: `"${fb.title}"을(를) 삭제했어요` })
+    } catch (err) {
+      setMessage({ kind: 'error', text: friendlyError(err) })
     }
   }
 
@@ -326,9 +342,14 @@ export default function DashboardPage() {
                           보기
                         </a>
                       )}
-                      <button type="button" className="btn btn-ghost" onClick={() => handleCopy(fb.slug)}>
-                        링크 복사
-                      </button>
+                      <div className="fb-actions-row">
+                        <button type="button" className="btn btn-ghost" onClick={() => handleCopy(fb.slug)}>
+                          링크 복사
+                        </button>
+                        <button type="button" className="btn btn-danger" onClick={() => handleDelete(fb)} disabled={busy}>
+                          삭제
+                        </button>
+                      </div>
                     </div>
                   </li>
                 )
