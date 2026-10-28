@@ -1,0 +1,21 @@
+{
+  "name": "FlipBook - 아이폰처럼 넘어가는 카탈로그",
+  "short_name": "FlipBook",
+  "description": "PDF를 아이폰 도서처럼 동그랗게 넘어가는 플립북으로",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0a12",
+  "theme_color": "#ff4d5a",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
