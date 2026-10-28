@@ -6,10 +6,16 @@ import Link from 'next/link'
 export default function Home(){
   return (
     <div style={{minHeight:'100vh', background:'radial-gradient(ellipse at center,#2e1c3a 0%,#0f0a12 80%)', color:'#fff'}}>
-      <header style={{display:'flex', justifyContent:'space-between', padding:'20px 24px', borderBottom:'1px solid rgba(255,255,255,.08)'}}>
-        <div style={{fontWeight:800, color:'#ff5a6a'}}>FLIPBOOK.KR</div>
-        <Link href="/dashboard" style={{color:'#fff', textDecoration:'none', background:'rgba(255,255,255,.12)', padding:'8px 16px', borderRadius:20, fontSize:13}}>대시보드</Link>
-      </header>
+      <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 24px', position:'sticky', top:0, zIndex:10, background:'rgba(10,10,20,0.8)', backdropFilter:'blur(12px)', borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+      <a href="/" style={{display:'flex', alignItems:'center', gap:'8px', textDecoration:'none'}}>
+        <div style={{color:'#FF5A5F', fontWeight:900, fontSize:'16px', letterSpacing:'-0.5px'}}>FLIPBOOK.KR</div>
+      </a>
+      <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+        <a href="/login" style={{color:'white', textDecoration:'none', fontSize:'13px', padding:'8px 16px', borderRadius:'20px', border:'1px solid rgba(255,255,255,0.2)'}}>로그인</a>
+        <a href="/signup" style={{background:'white', color:'black', textDecoration:'none', fontSize:'13px', padding:'8px 16px', borderRadius:'20px', fontWeight:700}}>회원가입</a>
+        <a href="/dashboard" style={{background:'rgba(255,255,255,0.1)', color:'white', textDecoration:'none', fontSize:'13px', padding:'8px 16px', borderRadius:'20px'}}>대시보드</a>
+      </div>
+    </header>
       <main style={{maxWidth:960, margin:'0 auto', padding:'80px 24px', textAlign:'center'}}>
         <div style={{display:'inline-block', background:'rgba(255,90,106,.15)', color:'#ff8a95', padding:'6px 14px', borderRadius:20, fontSize:12, marginBottom:20}}>아이폰 도서처럼 동그랗게 말리며 넘어가는 플립북</div>
         <h1 style={{fontSize:48, lineHeight:1.15, marginBottom:18}}>PDF 카탈로그를<br/>카톡에서 바로 보는<br/><span style={{color:'#ff5a6a'}}>플립북 링크</span>로</h1>
