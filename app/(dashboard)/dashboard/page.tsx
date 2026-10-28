@@ -65,7 +65,7 @@ export default function DashboardPage() {
   return (
     <div style={{minHeight:'100vh', background:'#F5F5F0'}}>
       <header style={{background:'white', borderBottom:'1px solid #eee', padding:'14px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:10}}>
-        <Link href="/dashboard" style={{display:'flex', alignItems:'center', gap:'10px', textDecoration:'none', color:'black'}}>
+        <Link href="/" style={{display:'flex', alignItems:'center', gap:'10px', textDecoration:'none', color:'black'}}>
           <div style={{width:'32px', height:'32px', background:'#FEE500', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900}}>C</div>
           <span style={{fontWeight:800}}>카탈로그톡</span>
           <span style={{background:'#FEE500', borderRadius:'20px', padding:'3px 10px', fontSize:'11px', fontWeight:700, marginLeft:'8px'}}>BETA</span>
