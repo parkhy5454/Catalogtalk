@@ -43,7 +43,7 @@ export default function DashboardPage() {
       const { error: upErr } = await supabase.storage.from('flipbook-files').upload(fileName, file)
       if (upErr) throw upErr
       const { data: urlData } = supabase.storage.from('flipbook-files').getPublicUrl(fileName)
-      const slug = title.toLowerCase().replace(/[^a-z0-9가-힣]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString().slice(-4)
+      const slug = 'catalog-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2,6)
       const { error } = await supabase.from('flipbooks').insert({ title: title.trim(), slug, pdf_url: urlData.publicUrl, user_id: user?.id })
       if (error) throw error
       setTitle('')
@@ -65,7 +65,7 @@ export default function DashboardPage() {
   return (
     <div style={{minHeight:'100vh', background:'#F5F5F0'}}>
       <header style={{background:'white', borderBottom:'1px solid #eee', padding:'14px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:10}}>
-        <Link href="/" style={{display:'flex', alignItems:'center', gap:'10px', textDecoration:'none', color:'black'}}>
+        <Link href="/dashboard" style={{display:'flex', alignItems:'center', gap:'10px', textDecoration:'none', color:'black'}}>
           <div style={{width:'32px', height:'32px', background:'#FEE500', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900}}>C</div>
           <span style={{fontWeight:800}}>카탈로그톡</span>
           <span style={{background:'#FEE500', borderRadius:'20px', padding:'3px 10px', fontSize:'11px', fontWeight:700, marginLeft:'8px'}}>BETA</span>
