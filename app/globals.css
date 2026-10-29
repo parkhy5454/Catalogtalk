@@ -1317,3 +1317,16 @@ body {
     transition: none;
   }
 }
+
+/* Action rows: buttons keep their label on one line, inputs take the remaining width */
+.fb-actions-row .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fb-actions-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.chip {
+  white-space: nowrap;
+}
