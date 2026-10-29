@@ -68,14 +68,6 @@ export default async function Home() {
           </div>
         </section>
 
-        <section className="cost-box" aria-labelledby="cost-title">
-          <h2 id="cost-title">💰 운영 비용 (프로덕션)</h2>
-          Vercel Hobby $0 + Supabase Free $0 = 월 0원 (고객 50곳까지)<br />
-          고객 200곳 이상: Supabase Pro $25 또는 Cloudflare R2 + Neon으로 이전 (월 $7~$20)<br />
-          <br />
-          • 무료 플랜: 0.5GB DB, 1GB 스토리지, 50GB 대역폭<br />
-          • RLS 보안 활성화, 고객별 데이터 격리, 조회 기록 포함
-        </section>
       </main>
     </div>
   )
