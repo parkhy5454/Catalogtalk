@@ -30,10 +30,10 @@ export default async function Home() {
 
       <main className="container">
         <section className="hero">
-          <div className="hero-tag">아이폰 도서처럼 동그랗게 말리며 넘어가는 플립북</div>
+          <div className="hero-tag">도서처럼 동그랗게 말리며 넘어가는 플립북</div>
           <h1 className="hero-title">
-            PDF 카탈로그를<br />카톡에서 바로 보는<br />
-            <em>플립북 링크</em>로
+            PDF를 디지털 북으로<br />
+            바꿔주는 <em>플립북</em>
           </h1>
           <p className="hero-sub">
             고객은 앱 설치 없이 카톡에서 바로 봅니다.<br />
