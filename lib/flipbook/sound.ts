@@ -1,8 +1,13 @@
-// Page-turn sound, synthesized with Web Audio (no audio file to host or license).
-// Browsers only allow audio after a user gesture, so call unlockAudio() on the first touch.
+// Page-turn sound. Plays a real recorded page-turn clip from /public, and falls back to a
+// synthesized rustle if the clip cannot be loaded. Browsers only allow audio after a user
+// gesture, so call unlockAudio() on the first touch.
+
+const SOUND_URL = '/sounds/page-turn.wav'
 
 let ctx: AudioContext | null = null
-let noise: AudioBuffer | null = null
+let clip: AudioBuffer | null = null
+let loadingClip = false
+let synthNoise: AudioBuffer | null = null
 
 function getContext(): AudioContext | null {
   if (typeof window === 'undefined') return null
@@ -14,7 +19,22 @@ function getContext(): AudioContext | null {
   return ctx
 }
 
-// ~0.5s of soft, low-passed noise with a slow swell and long fade: a paper "shhh", not a click.
+function loadClip(c: AudioContext) {
+  if (clip || loadingClip) return
+  loadingClip = true
+  fetch(SOUND_URL)
+    .then((r) => r.arrayBuffer())
+    .then((bytes) => c.decodeAudioData(bytes))
+    .then((buf) => {
+      clip = buf
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      loadingClip = false
+    })
+}
+
+// Fallback: ~0.5s of soft, low-passed noise with a slow swell and long fade.
 function makeRustle(c: AudioContext): AudioBuffer {
   const duration = 0.5
   const length = Math.floor(c.sampleRate * duration)
@@ -25,7 +45,6 @@ function makeRustle(c: AudioContext): AudioBuffer {
   for (let i = 0; i < length; i++) {
     const t = i / length
     const env = (i < attack ? i / attack : 1) * Math.pow(1 - t, 3)
-    // One-pole low-pass on white noise removes the harsh high-frequency "tick" component.
     smooth = smooth * 0.85 + (Math.random() * 2 - 1) * 0.15
     data[i] = smooth * env * 3
   }
@@ -34,23 +53,37 @@ function makeRustle(c: AudioContext): AudioBuffer {
 
 export function unlockAudio() {
   const c = getContext()
-  if (c && c.state === 'suspended') void c.resume().catch(() => undefined)
+  if (!c) return
+  if (c.state === 'suspended') void c.resume().catch(() => undefined)
+  loadClip(c)
 }
 
 export function playPageTurn() {
   const c = getContext()
   if (!c) return
   if (c.state === 'suspended') void c.resume().catch(() => undefined)
-  if (!noise) noise = makeRustle(c)
+  loadClip(c)
 
   const src = c.createBufferSource()
-  src.buffer = noise
-  const tone = c.createBiquadFilter()
-  tone.type = 'lowpass'
-  tone.frequency.value = 3200
-  tone.Q.value = 0.5
   const gain = c.createGain()
-  gain.gain.value = 0.35
-  src.connect(tone).connect(gain).connect(c.destination)
+  if (clip) {
+    src.buffer = clip
+    gain.gain.value = 0.9
+  } else {
+    if (!synthNoise) synthNoise = makeRustle(c)
+    src.buffer = synthNoise
+    const tone = c.createBiquadFilter()
+    tone.type = 'lowpass'
+    tone.frequency.value = 3200
+    tone.Q.value = 0.5
+    src.connect(tone)
+    gain.gain.value = 0.35
+    tone.connect(gain)
+  }
+  if (!clip) {
+    gain.connect(c.destination)
+  } else {
+    src.connect(gain).connect(c.destination)
+  }
   src.start()
 }
