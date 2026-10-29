@@ -259,10 +259,14 @@ export default function Viewer({ flipbook, pages }: Props) {
     if (!s || !book || zoomIdx !== null) return
     const dx = e.clientX - s.x
     const dy = e.clientY - s.y
-    if (dx < -50 && Math.abs(dy) < 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    // Left or right swipe, same rule both ways: a fairly quick, mostly horizontal move.
+    if (Math.abs(dx) > 40 && Math.abs(dy) < 80 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      const forward = dx < 0
       // Wait one tick: page-flip handles the same pointerup on window after this React handler.
       window.setTimeout(() => {
-        if (pageIdxRef.current === s.idx && bookRef.current === book) book.flipNext()
+        if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
+        if (forward) book.flipNext()
+        else book.flipPrev()
       }, 0)
     }
   }

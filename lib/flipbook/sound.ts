@@ -68,6 +68,16 @@ export function playPageTurn() {
   const gain = c.createGain()
   if (clip) {
     src.buffer = clip
+    // Tame the low "thud" and lift the paper crispness of the recorded clip.
+    const hp = c.createBiquadFilter()
+    hp.type = 'highpass'
+    hp.frequency.value = 450
+    const presence = c.createBiquadFilter()
+    presence.type = 'peaking'
+    presence.frequency.value = 3000
+    presence.Q.value = 1
+    presence.gain.value = 5
+    src.connect(hp).connect(presence).connect(gain)
     gain.gain.value = 0.9
   } else {
     if (!synthNoise) synthNoise = makeRustle(c)
@@ -80,10 +90,6 @@ export function playPageTurn() {
     gain.gain.value = 0.35
     tone.connect(gain)
   }
-  if (!clip) {
-    gain.connect(c.destination)
-  } else {
-    src.connect(gain).connect(c.destination)
-  }
+  gain.connect(c.destination)
   src.start()
 }
