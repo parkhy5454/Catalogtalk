@@ -21,6 +21,8 @@ const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
   team: { label: 'Team (무제한)', limit: null },
 }
 
+// Same operator as app/dashboard/admin (server-side gate there). Used only to show the admin link.
+const ADMIN_EMAILS = ['parkhy5454@gmail.com']
 const FOLDER_NAME_MAX = 30
 const FOLDER_FILTER_ALL = 'all'
 const FOLDER_FILTER_NONE = 'none'
@@ -326,6 +328,12 @@ export default function DashboardPage() {
           </Link>
           <div className="topbar-actions">
             <span className="topbar-email truncate">{email}</span>
+            {/* Operator only; the /dashboard/admin page also redirects everyone else on the server. */}
+            {ADMIN_EMAILS.includes(email) && (
+              <Link href="/dashboard/admin" className="btn btn-ghost" style={{ minHeight: 48 }}>
+                관리자
+              </Link>
+            )}
             <Link href="/dashboard/profile" className="btn btn-ghost" style={{ minHeight: 48 }}>
               내 정보
             </Link>

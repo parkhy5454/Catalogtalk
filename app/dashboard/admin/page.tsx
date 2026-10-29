@@ -16,14 +16,27 @@ type AuthUser = {
   email_confirmed_at?: string | null
 }
 
+type CustomerRow = {
+  user_id: string
+  name: string | null
+  phone: string | null
+  company_name: string | null
+  plan: string | null
+  bonus_flipbooks: number | null
+  referred_by: string | null
+}
+
 export default async function AdminPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  // Server-side gate: regular users are redirected, whatever the UI shows.
   if (!ADMIN_EMAILS.includes(user.email || '')) redirect('/dashboard')
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  let users: AuthUser[] = []
+  const users: AuthUser[] = []
+  const customers = new Map<string, CustomerRow>()
+  const flipbookCounts = new Map<string, number>()
   let error: string | null = null
 
   if (!serviceKey) {
@@ -42,9 +55,21 @@ export default async function AdminPage() {
       users.push(...(data.users as AuthUser[]))
       if (data.users.length < 200) break
     }
+
+    const { data: rows, error: custErr } = await admin
+      .from('customers')
+      .select('user_id, name, phone, company_name, plan, bonus_flipbooks, referred_by')
+    if (custErr) error = error ?? custErr.message
+    for (const r of (rows as CustomerRow[]) ?? []) customers.set(r.user_id, r)
+
+    const { data: fbRows } = await admin.from('flipbooks').select('user_id')
+    for (const r of (fbRows as { user_id: string }[]) ?? []) {
+      flipbookCounts.set(r.user_id, (flipbookCounts.get(r.user_id) ?? 0) + 1)
+    }
   }
 
   const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString('ko-KR') : '-')
+  const dash = (s?: string | null) => (s && s.trim() ? s : '-')
 
   return (
     <div className="page">
@@ -64,27 +89,40 @@ export default async function AdminPage() {
             <thead>
               <tr>
                 <th scope="col">이메일</th>
+                <th scope="col">이름</th>
+                <th scope="col">휴대폰</th>
+                <th scope="col">회사</th>
+                <th scope="col">요금제</th>
+                <th scope="col">플립북</th>
+                <th scope="col">추천 보너스</th>
                 <th scope="col">가입일</th>
                 <th scope="col">최근 로그인</th>
                 <th scope="col">인증</th>
-                <th scope="col">ID</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td style={{ fontWeight: 600 }}>
-                    {u.email}
-                    {ADMIN_EMAILS.includes(u.email || '') && <span className="badge-admin">ADMIN</span>}
-                  </td>
-                  <td className="muted">{fmt(u.created_at)}</td>
-                  <td className="muted">{fmt(u.last_sign_in_at)}</td>
-                  <td>
-                    {u.email_confirmed_at ? <span className="tag tag-ok">인증됨</span> : <span className="tag tag-no">미인증</span>}
-                  </td>
-                  <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>{u.id.slice(0, 8)}…</td>
-                </tr>
-              ))}
+              {users.map((u) => {
+                const c = customers.get(u.id)
+                return (
+                  <tr key={u.id}>
+                    <td style={{ fontWeight: 600 }}>
+                      {u.email}
+                      {ADMIN_EMAILS.includes(u.email || '') && <span className="badge-admin">ADMIN</span>}
+                    </td>
+                    <td>{dash(c?.name)}</td>
+                    <td>{dash(c?.phone)}</td>
+                    <td>{dash(c?.company_name)}</td>
+                    <td>{c?.plan ?? 'free'}</td>
+                    <td>{flipbookCounts.get(u.id) ?? 0}개</td>
+                    <td>{c?.bonus_flipbooks ?? 0}개{c?.referred_by ? ' (추천 가입)' : ''}</td>
+                    <td className="muted">{fmt(u.created_at)}</td>
+                    <td className="muted">{fmt(u.last_sign_in_at)}</td>
+                    <td>
+                      {u.email_confirmed_at ? <span className="tag tag-ok">인증됨</span> : <span className="tag tag-no">미인증</span>}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

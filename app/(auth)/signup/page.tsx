@@ -1,31 +1,52 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { scrollIntoViewOnFocus } from '@/lib/ui'
 
+// Referral codes are 8 uppercase hex characters (see schema.sql). Anything else is ignored.
+const REF_PATTERN = /^[A-Z0-9]{4,16}$/
+
 export default function SignupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
   const [company, setCompany] = useState('')
+  const [ref, setRef] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
+  useEffect(() => {
+    // Friend referral: /signup?ref=CODE. Read on the client to keep the page statically renderable.
+    const code = new URLSearchParams(window.location.search).get('ref')?.trim().toUpperCase() ?? ''
+    if (REF_PATTERN.test(code)) setRef(code)
+    // supabase is stable for the lifetime of the page
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
     setInfo('')
-    // The customers row is created by a database trigger (see schema.sql),
-    // so no client-side insert is needed here.
+    // The customers row is created by a database trigger (see schema.sql), which also
+    // reads these metadata keys and applies the referral bonus. No client-side insert.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { company_name: company } },
+      options: {
+        data: {
+          name: name.trim(),
+          phone: phone.trim(),
+          company_name: company.trim(),
+          ...(ref ? { ref } : {}),
+        },
+      },
     })
     if (error) {
       setError(error.message)
@@ -50,14 +71,41 @@ export default function SignupPage() {
             <span style={{ color: '#4ade80' }}>●</span> 지금 가입하면 첫 달 무료
           </div>
           <h1>카탈로그를<br />카톡처럼 보내세요</h1>
-          <p>PDF를 올리면 3초 만에 플립북 링크 완성</p>
+          <p>PDF나 Word 문서를 올리면 3초 만에 플립북 링크 완성</p>
         </div>
 
+        {ref && <div className="notice notice-info" role="status">친구 추천으로 가입하면 추가 플립북 슬롯을 받아요</div>}
         {error && <div className="notice notice-error" role="alert">{error}</div>}
         {info && <div className="notice notice-success" role="status">{info}</div>}
 
         {!info && (
-          <form onSubmit={handleSignup} className="form-stack" style={{ marginTop: error ? 16 : 0 }}>
+          <form onSubmit={handleSignup} className="form-stack" style={{ marginTop: error || ref ? 16 : 0 }}>
+            <label className="field">
+              <span className="sr-only">이름</span>
+              <input
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="이름 (선택)"
+                autoComplete="name"
+                maxLength={50}
+              />
+            </label>
+            <label className="field">
+              <span className="sr-only">휴대폰 번호</span>
+              <input
+                className="input"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                onFocus={scrollIntoViewOnFocus}
+                placeholder="휴대폰 번호 (선택)"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={20}
+              />
+            </label>
             <label className="field">
               <span className="sr-only">회사명</span>
               <input
