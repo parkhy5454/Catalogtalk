@@ -21,7 +21,8 @@ function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err)
   const plan = msg.match(/PLAN_LIMIT:\s*(.*)/)
   if (plan) return plan[1]
-  if (/row-level security|policy/i.test(msg)) return '권한이 없어요. 다시 로그인해 주세요.'
+  // Show the real message (which step and which rule) until the upload issue is resolved.
+  if (/row-level security|policy/i.test(msg)) return `권한 오류: ${msg}`
   return msg
 }
 
