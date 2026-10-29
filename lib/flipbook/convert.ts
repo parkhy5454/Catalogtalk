@@ -3,14 +3,14 @@
 import * as pdfjsLib from 'pdfjs-dist/build/pdf'
 
 const PDFJS_VERSION = '3.11.174'
+const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
 const TARGET_WIDTH = 1200 // px; crisp on 3x phones, small enough to stay light
 const WEBP_QUALITY = 0.82
 
 let workerReady = false
 function ensureWorker() {
   if (workerReady) return
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`
   workerReady = true
 }
 
@@ -61,7 +61,13 @@ export async function renderPdfPages(
   onPage?: (done: number, total: number) => void
 ): Promise<RenderResult> {
   ensureWorker()
-  const pdf = await pdfjsLib.getDocument({ data: source }).promise
+  // CMaps map Korean/CJK character codes to glyphs; without them text renders as garbage.
+  const pdf = await pdfjsLib.getDocument({
+    data: source,
+    cMapUrl: `${PDFJS_BASE}/cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
+  }).promise
   const pages: RenderedPage[] = []
   let thumbJpg: Blob | null = null
 

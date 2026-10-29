@@ -14,16 +14,20 @@ function getContext(): AudioContext | null {
   return ctx
 }
 
-// ~0.35s of shaped noise: a quick rustle that decays, like paper sliding.
+// ~0.5s of soft, low-passed noise with a slow swell and long fade: a paper "shhh", not a click.
 function makeRustle(c: AudioContext): AudioBuffer {
-  const duration = 0.35
+  const duration = 0.5
   const length = Math.floor(c.sampleRate * duration)
   const buffer = c.createBuffer(1, length, c.sampleRate)
   const data = buffer.getChannelData(0)
-  const attack = Math.floor(c.sampleRate * 0.012)
+  const attack = Math.floor(c.sampleRate * 0.04)
+  let smooth = 0
   for (let i = 0; i < length; i++) {
-    const env = (i < attack ? i / attack : 1) * Math.pow(1 - i / length, 2.4)
-    data[i] = (Math.random() * 2 - 1) * env
+    const t = i / length
+    const env = (i < attack ? i / attack : 1) * Math.pow(1 - t, 3)
+    // One-pole low-pass on white noise removes the harsh high-frequency "tick" component.
+    smooth = smooth * 0.85 + (Math.random() * 2 - 1) * 0.15
+    data[i] = smooth * env * 3
   }
   return buffer
 }
@@ -41,12 +45,12 @@ export function playPageTurn() {
 
   const src = c.createBufferSource()
   src.buffer = noise
-  const band = c.createBiquadFilter()
-  band.type = 'bandpass'
-  band.frequency.value = 2600
-  band.Q.value = 0.8
+  const tone = c.createBiquadFilter()
+  tone.type = 'lowpass'
+  tone.frequency.value = 3200
+  tone.Q.value = 0.5
   const gain = c.createGain()
-  gain.gain.value = 0.55
-  src.connect(band).connect(gain).connect(c.destination)
+  gain.gain.value = 0.35
+  src.connect(tone).connect(gain).connect(c.destination)
   src.start()
 }
