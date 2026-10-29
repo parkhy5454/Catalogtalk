@@ -949,3 +949,9 @@ button {
     pointer-events: none !important;
   }
 }
+
+/* Let the viewer receive horizontal swipes: the browser must not claim them for panning
+   (the page never scrolls sideways, so this changes nothing else). */
+.book-area {
+  touch-action: pan-y;
+}
