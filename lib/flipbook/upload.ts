@@ -30,6 +30,7 @@ export type FlipbookRow = {
   page_count: number
   views: number
   created_at: string
+  folder_id: string | null
 }
 
 export function makeSlug(): string {
@@ -107,7 +108,7 @@ async function insertPages(supabase: SupabaseClient, flipbookId: string, pages: 
 /** Convert a brand-new PDF into a flipbook (pages + thumbnail + DB rows). */
 export async function createFlipbook(
   supabase: SupabaseClient,
-  opts: { userId: string; title: string; file: File },
+  opts: { userId: string; title: string; file: File; folderId?: string | null },
   render: Render,
   onStatus: (text: string, progress: number) => void
 ): Promise<FlipbookRow> {
@@ -146,8 +147,9 @@ export async function createFlipbook(
       pdf_url: pdfUrl,
       thumb_url: thumbUrl,
       page_count: numPages,
+      folder_id: opts.folderId ?? null,
     })
-    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at')
+    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id')
     .single()
   if (error) throw error
 

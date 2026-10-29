@@ -15,13 +15,19 @@ import {
 } from '@/lib/flipbook/upload'
 
 const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
-  free: { label: '무료 플랜 (3개까지)', limit: 3 },
-  starter: { label: 'Starter (20개까지)', limit: 20 },
+  free: { label: '무료 플랜 (기본 3개)', limit: 3 },
+  starter: { label: 'Starter (기본 20개)', limit: 20 },
   pro: { label: 'Pro (무제한)', limit: null },
   team: { label: 'Team (무제한)', limit: null },
 }
 
-// Load pdf.js only when the uploader needs it (keeps the dashboard light, and avoids SSR issues).
+const FOLDER_NAME_MAX = 30
+const FOLDER_FILTER_ALL = 'all'
+const FOLDER_FILTER_NONE = 'none'
+
+type Folder = { id: string; name: string }
+
+// Load converters only when needed (keeps the dashboard light, and avoids SSR issues).
 async function renderPdf(buf: ArrayBuffer, onPage: (d: number, t: number) => void) {
   const mod = await import('@/lib/flipbook/convert')
   return mod.renderPdfPages(buf, onPage)
@@ -32,7 +38,7 @@ async function renderDocx(buf: ArrayBuffer, onPage: (d: number, t: number) => vo
   return mod.renderDocxPages(buf, onPage)
 }
 
-// Stored original decides the converter (.docx originals keep their extension in storage).
+// The stored original decides the converter (.docx originals keep their extension in storage).
 function rendererForUrl(url: string | null) {
   return /\.docx(\?|$)/i.test(url ?? '') ? renderDocx : renderPdf
 }
@@ -46,13 +52,25 @@ function friendlyError(err: unknown): string {
   return msg
 }
 
+function shareText(title: string, url: string) {
+  return `[카탈로그톡] ${title}\n${url}`
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState<string>('')
+  const [origin, setOrigin] = useState<string>('')
+  const [canNativeShare, setCanNativeShare] = useState(false)
   const [plan, setPlan] = useState<string>('free')
+  const [bonus, setBonus] = useState<number>(0)
+  const [referralCode, setReferralCode] = useState<string>('')
   const [flipbooks, setFlipbooks] = useState<FlipbookRow[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [folderFilter, setFolderFilter] = useState<string>(FOLDER_FILTER_ALL)
+  const [uploadFolder, setUploadFolder] = useState<string>('')
+  const [newFolderName, setNewFolderName] = useState('')
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
@@ -60,13 +78,14 @@ export default function DashboardPage() {
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [convertingId, setConvertingId] = useState<string | null>(null)
+  const [shareOpenId, setShareOpenId] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const fetchFlipbooks = useCallback(
     async (uid: string) => {
       const { data, error } = await supabase
         .from('flipbooks')
-        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at')
+        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id')
         .eq('user_id', uid)
         .order('created_at', { ascending: false })
       if (error) setMessage({ kind: 'error', text: friendlyError(error) })
@@ -75,7 +94,22 @@ export default function DashboardPage() {
     [supabase]
   )
 
+  const fetchFolders = useCallback(
+    async (uid: string) => {
+      const { data, error } = await supabase
+        .from('folders')
+        .select('id, name')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: true })
+      if (error) setMessage({ kind: 'error', text: friendlyError(error) })
+      else setFolders((data as Folder[]) ?? [])
+    },
+    [supabase]
+  )
+
   useEffect(() => {
+    setOrigin(window.location.origin)
+    setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function')
     let cancelled = false
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -88,11 +122,13 @@ export default function DashboardPage() {
       setEmail(user.email ?? '')
       const { data: customer } = await supabase
         .from('customers')
-        .select('plan')
+        .select('plan, referral_code, bonus_flipbooks')
         .eq('user_id', user.id)
         .maybeSingle()
       if (customer?.plan) setPlan(customer.plan)
-      await fetchFlipbooks(user.id)
+      setBonus(customer?.bonus_flipbooks ?? 0)
+      setReferralCode(customer?.referral_code ?? '')
+      await Promise.all([fetchFlipbooks(user.id), fetchFolders(user.id)])
     })()
     return () => {
       cancelled = true
@@ -123,7 +159,7 @@ export default function DashboardPage() {
     try {
       const fb = await createFlipbook(
         supabase,
-        { userId, title: name, file },
+        { userId, title: name, file, folderId: uploadFolder || null },
         kind === 'docx' ? renderDocx : renderPdf,
         (text, p) => {
           setStatus(text)
@@ -181,8 +217,80 @@ export default function DashboardPage() {
   }
 
   const handleCopy = async (slug: string) => {
-    const ok = await copyText(`${window.location.origin}/b/${slug}`)
+    const ok = await copyText(`${origin}/b/${slug}`)
     setMessage(ok ? { kind: 'success', text: '✅ 링크를 복사했어요' } : { kind: 'error', text: '복사하지 못했어요. 링크를 길게 눌러 직접 복사해 주세요.' })
+  }
+
+  const handleNativeShare = async (fb: FlipbookRow) => {
+    try {
+      await navigator.share({ title: fb.title, text: `[카탈로그톡] ${fb.title}`, url: `${origin}/b/${fb.slug}` })
+      setShareOpenId(null)
+    } catch (err) {
+      // Cancelling the share sheet is not an error worth showing.
+      if ((err as Error).name !== 'AbortError') setMessage({ kind: 'error', text: '공유하지 못했어요. 링크 복사를 이용해 주세요.' })
+    }
+  }
+
+  // ---- Folders -------------------------------------------------------------
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim().slice(0, FOLDER_NAME_MAX)
+    if (!name || !userId) return
+    setMessage(null)
+    const { data, error } = await supabase
+      .from('folders')
+      .insert({ user_id: userId, name })
+      .select('id, name')
+      .single()
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFolders((prev) => [...prev, data as Folder])
+    setNewFolderName('')
+    setMessage({ kind: 'success', text: `"${name}" 폴더를 만들었어요` })
+  }
+
+  const handleRenameFolder = async (folder: Folder) => {
+    const next = window.prompt('새 폴더 이름', folder.name)?.trim().slice(0, FOLDER_NAME_MAX)
+    if (!next || next === folder.name) return
+    const { error } = await supabase.from('folders').update({ name: next }).eq('id', folder.id)
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFolders((prev) => prev.map((f) => (f.id === folder.id ? { ...f, name: next } : f)))
+  }
+
+  const handleDeleteFolder = async (folder: Folder) => {
+    const ok = window.confirm(`"${folder.name}" 폴더를 삭제할까요?\n안의 플립북은 삭제되지 않고 '폴더 없음'으로 옮겨져요.`)
+    if (!ok) return
+    const { error } = await supabase.from('folders').delete().eq('id', folder.id)
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFolders((prev) => prev.filter((f) => f.id !== folder.id))
+    setFlipbooks((prev) => prev.map((fb) => (fb.folder_id === folder.id ? { ...fb, folder_id: null } : fb)))
+    if (folderFilter === folder.id) setFolderFilter(FOLDER_FILTER_ALL)
+    if (uploadFolder === folder.id) setUploadFolder('')
+  }
+
+  const handleMoveFlipbook = async (fb: FlipbookRow, folderId: string) => {
+    const nextId = folderId || null
+    const { error } = await supabase.from('flipbooks').update({ folder_id: nextId }).eq('id', fb.id)
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, folder_id: nextId } : f)))
+  }
+
+  // ---- Referral ------------------------------------------------------------
+  const referralLink = referralCode && origin ? `${origin}/signup?ref=${referralCode}` : ''
+  const handleCopyReferral = async () => {
+    if (!referralLink) return
+    const ok = await copyText(referralLink)
+    setMessage(ok ? { kind: 'success', text: '✅ 추천 링크를 복사했어요' } : { kind: 'error', text: '복사하지 못했어요. 링크를 길게 눌러 직접 복사해 주세요.' })
   }
 
   const handleLogout = async () => {
@@ -191,9 +299,21 @@ export default function DashboardPage() {
     router.refresh()
   }
 
+  const visibleFlipbooks = flipbooks.filter((fb) =>
+    folderFilter === FOLDER_FILTER_ALL
+      ? true
+      : folderFilter === FOLDER_FILTER_NONE
+        ? !fb.folder_id
+        : fb.folder_id === folderFilter
+  )
+  const folderNameById = (id: string | null) => folders.find((f) => f.id === id)?.name ?? ''
+  const selectedFolder = folders.find((f) => f.id === folderFilter) ?? null
+
   const totalViews = flipbooks.reduce((s, f) => s + (f.views || 0), 0)
   const planInfo = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
-  const atLimit = planInfo.limit !== null && flipbooks.length >= planInfo.limit
+  // Referral bonuses add slots on top of the plan's base limit.
+  const limit = planInfo.limit === null ? null : planInfo.limit + bonus
+  const atLimit = limit !== null && flipbooks.length >= limit
 
   return (
     <div className="page">
@@ -206,6 +326,9 @@ export default function DashboardPage() {
           </Link>
           <div className="topbar-actions">
             <span className="topbar-email truncate">{email}</span>
+            <Link href="/dashboard/profile" className="btn btn-ghost" style={{ minHeight: 48 }}>
+              내 정보
+            </Link>
             <button type="button" onClick={handleLogout} className="btn btn-primary" style={{ minHeight: 48 }}>
               로그아웃
             </button>
@@ -225,19 +348,22 @@ export default function DashboardPage() {
           </div>
           <div className="stat stat-dark">
             <div className="stat-label">요금제</div>
-            <div className="stat-value">{planInfo.label}</div>
+            <div className="stat-value">
+              {planInfo.label}
+              {bonus > 0 ? ` + 추천 ${bonus}개` : ''}
+            </div>
           </div>
         </div>
 
         <section className="panel" aria-labelledby="create-title">
           <div className="panel-head">
             <h2 className="panel-title" id="create-title">새 플립북 만들기</h2>
-            <span className="pill">PDF → 링크 3초</span>
+            <span className="pill">PDF · Word → 링크 3초</span>
           </div>
 
           {atLimit ? (
             <div className="notice notice-info">
-              현재 요금제의 플립북 개수({planInfo.limit}개)를 모두 사용했어요. 요금제를 올리면 더 만들 수 있어요.
+              현재 플립북 개수({limit}개)를 모두 사용했어요. 요금제를 올리거나 친구를 추천하면 더 만들 수 있어요.
             </div>
           ) : (
             <div className="form-stack">
@@ -252,6 +378,23 @@ export default function DashboardPage() {
                   disabled={busy}
                 />
               </label>
+
+              {folders.length > 0 && (
+                <label className="field">
+                  <span className="field-label">저장할 폴더</span>
+                  <select
+                    className="input"
+                    value={uploadFolder}
+                    onChange={(e) => setUploadFolder(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">폴더 없음</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               <div
                 className={`dropzone${dragOver ? ' is-over' : ''}`}
@@ -306,21 +449,115 @@ export default function DashboardPage() {
           )}
         </section>
 
+        <section className="panel" aria-labelledby="folder-title">
+          <div className="panel-head">
+            <h2 className="panel-title" id="folder-title">폴더</h2>
+          </div>
+          <div className="form-stack">
+            <div className="fb-actions-row" style={{ flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-pressed={folderFilter === FOLDER_FILTER_ALL}
+                onClick={() => setFolderFilter(FOLDER_FILTER_ALL)}
+              >
+                전체 ({flipbooks.length})
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-pressed={folderFilter === FOLDER_FILTER_NONE}
+                onClick={() => setFolderFilter(FOLDER_FILTER_NONE)}
+              >
+                폴더 없음 ({flipbooks.filter((f) => !f.folder_id).length})
+              </button>
+              {folders.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className="btn btn-ghost"
+                  aria-pressed={folderFilter === f.id}
+                  onClick={() => setFolderFilter(f.id)}
+                >
+                  {f.name} ({flipbooks.filter((fb) => fb.folder_id === f.id).length})
+                </button>
+              ))}
+            </div>
+
+            {selectedFolder && (
+              <div className="fb-actions-row">
+                <button type="button" className="btn btn-ghost" onClick={() => handleRenameFolder(selectedFolder)}>
+                  이름 변경
+                </button>
+                <button type="button" className="btn btn-danger" onClick={() => handleDeleteFolder(selectedFolder)}>
+                  폴더 삭제
+                </button>
+              </div>
+            )}
+
+            <div className="fb-actions-row">
+              <input
+                className="input"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="새 폴더 이름"
+                maxLength={FOLDER_NAME_MAX}
+                aria-label="새 폴더 이름"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder()
+                }}
+              />
+              <button type="button" className="btn btn-primary" onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+                폴더 추가
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel" aria-labelledby="referral-title">
+          <div className="panel-head">
+            <h2 className="panel-title" id="referral-title">친구 추천</h2>
+          </div>
+          <p style={{ fontSize: 14, color: 'var(--ink-soft, #555)', margin: '0 0 12px' }}>
+            친구가 이 링크로 가입하면 나와 친구 모두 플립북을 1개씩 더 만들 수 있어요.
+          </p>
+          {referralLink ? (
+            <div className="fb-actions-row">
+              <span className="input truncate" style={{ flex: 1, minWidth: 0 }}>{referralLink}</span>
+              <button type="button" className="btn btn-primary" onClick={handleCopyReferral}>
+                링크 복사
+              </button>
+            </div>
+          ) : (
+            <div className="notice notice-info">추천 링크를 준비하고 있어요. 잠시 후 새로고침해 주세요.</div>
+          )}
+        </section>
+
         <section className="panel" aria-labelledby="list-title">
           <div className="panel-head">
-            <h2 className="panel-title" id="list-title">내 플립북 ({flipbooks.length})</h2>
+            <h2 className="panel-title" id="list-title">
+              {folderFilter === FOLDER_FILTER_ALL
+                ? `내 플립북 (${flipbooks.length})`
+                : `${folderFilter === FOLDER_FILTER_NONE ? '폴더 없음' : selectedFolder?.name ?? ''} (${visibleFlipbooks.length})`}
+            </h2>
           </div>
 
           {flipbooks.length === 0 ? (
             <div className="empty">
               <div className="empty-icon" aria-hidden="true">📚</div>
               <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--ink)' }}>아직 만든 플립북이 없어요</div>
-              <div style={{ fontSize: 13 }}>위에서 PDF를 올리면 카톡 링크가 바로 생겨요!</div>
+              <div style={{ fontSize: 13 }}>위에서 PDF나 Word 문서를 올리면 카톡 링크가 바로 생겨요!</div>
+            </div>
+          ) : visibleFlipbooks.length === 0 ? (
+            <div className="empty">
+              <div style={{ fontSize: 13 }}>이 폴더에 플립북이 없어요. 위에서 플립북을 옮겨 보세요.</div>
             </div>
           ) : (
             <ul className="fb-list">
-              {flipbooks.map((fb) => {
+              {visibleFlipbooks.map((fb) => {
                 const needsConvert = !fb.page_count
+                const shareUrl = `${origin}/b/${fb.slug}`
+                const text = shareText(fb.title, shareUrl)
                 return (
                   <li key={fb.id} className="fb-item">
                     {fb.thumb_url ? (
@@ -335,8 +572,24 @@ export default function DashboardPage() {
                         <span className="truncate" style={{ maxWidth: '100%' }}>/b/{fb.slug}</span>
                         <span className="chip">조회 {fb.views || 0}회</span>
                         {fb.page_count ? <span className="chip">{fb.page_count}쪽</span> : null}
+                        {folderNameById(fb.folder_id) && <span className="chip">📁 {folderNameById(fb.folder_id)}</span>}
                         <span>{new Date(fb.created_at).toLocaleDateString('ko-KR')}</span>
                       </div>
+                      {folders.length > 0 && (
+                        <label className="field" style={{ marginTop: 10 }}>
+                          <span className="field-label">폴더 이동</span>
+                          <select
+                            className="input"
+                            value={fb.folder_id ?? ''}
+                            onChange={(e) => handleMoveFlipbook(fb, e.target.value)}
+                          >
+                            <option value="">폴더 없음</option>
+                            {folders.map((f) => (
+                              <option key={f.id} value={f.id}>{f.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       {needsConvert && (
                         <div className="notice notice-info" style={{ marginTop: 10, padding: '8px 10px', fontSize: 12 }}>
                           모바일 뷰어용 이미지가 아직 없어요. &quot;뷰어 변환&quot;을 눌러 주세요.
@@ -345,6 +598,24 @@ export default function DashboardPage() {
                       {convertingId === fb.id && (
                         <div className="progress" style={{ marginTop: 10 }} aria-hidden="true">
                           <span style={{ width: `${progress}%` }} />
+                        </div>
+                      )}
+                      {shareOpenId === fb.id && (
+                        <div className="fb-actions-row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+                          {canNativeShare && (
+                            <button type="button" className="btn btn-primary" onClick={() => handleNativeShare(fb)}>
+                              공유하기
+                            </button>
+                          )}
+                          <a className="btn btn-ghost" href={`sms:?body=${encodeURIComponent(text)}`}>
+                            문자 보내기
+                          </a>
+                          <a
+                            className="btn btn-ghost"
+                            href={`mailto:?subject=${encodeURIComponent(`[카탈로그톡] ${fb.title}`)}&body=${encodeURIComponent(text)}`}
+                          >
+                            이메일 보내기
+                          </a>
                         </div>
                       )}
                     </div>
@@ -361,6 +632,14 @@ export default function DashboardPage() {
                       <div className="fb-actions-row">
                         <button type="button" className="btn btn-ghost" onClick={() => handleCopy(fb.slug)}>
                           링크 복사
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          aria-expanded={shareOpenId === fb.id}
+                          onClick={() => setShareOpenId(shareOpenId === fb.id ? null : fb.id)}
+                        >
+                          보내기
                         </button>
                         <button type="button" className="btn btn-danger" onClick={() => handleDelete(fb)} disabled={busy}>
                           삭제
