@@ -1489,3 +1489,23 @@ body {
   flex: 1 1 calc(50% - 4px);
   min-width: 0;
 }
+
+/* Card actions: stack "보기" above a two-per-row button grid, so nothing runs off the card. */
+.fb-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.fb-actions > .btn {
+  flex: none;
+  width: 100%;
+}
+.fb-card-actions {
+  width: 100%;
+  min-width: 0;
+}
+.filter-row .btn,
+.filter-row .btn.btn-ghost {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0;
+}
