@@ -240,3 +240,80 @@ create policy flipbook_files_delete_own on storage.objects for delete to authent
 alter table flipbook_views add column if not exists session_id text;
 create index if not exists flipbook_views_session_idx on flipbook_views (flipbook_id, session_id);
 notify pgrst, 'reload schema';
+
+-- 5. Security hardening (v5) -------------------------------------------
+-- 5a. Views: browsers no longer insert rows directly. They call record_view(), which
+--     checks the flipbook, the page number and simple per-session / per-day limits.
+alter table flipbook_views drop constraint if exists flipbook_views_page_chk;
+alter table flipbook_views add constraint flipbook_views_page_chk
+  check (page_no is null or page_no between 1 and 5000);
+alter table flipbook_views drop constraint if exists flipbook_views_dwell_chk;
+alter table flipbook_views add constraint flipbook_views_dwell_chk
+  check (dwell_ms is null or dwell_ms between 0 and 3600000);
+alter table flipbook_views drop constraint if exists flipbook_views_session_chk;
+alter table flipbook_views add constraint flipbook_views_session_chk
+  check (session_id is null or char_length(session_id) between 8 and 64);
+alter table flipbook_views drop constraint if exists flipbook_views_ua_chk;
+alter table flipbook_views add constraint flipbook_views_ua_chk
+  check (user_agent is null or char_length(user_agent) <= 255);
+
+drop policy if exists views_public_insert on flipbook_views;
+revoke insert on flipbook_views from anon, authenticated;
+
+-- The old per-load counter is replaced by record_view (it counted anyone, unlimited).
+drop function if exists increment_view(uuid);
+
+create or replace function record_view(
+  p_flipbook uuid, p_session text, p_page int, p_dwell int, p_ua text
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_pages int;
+  v_is_new boolean;
+begin
+  if p_session is null or char_length(p_session) not between 8 and 64 then return; end if;
+  select page_count into v_pages from flipbooks where id = p_flipbook;
+  if v_pages is null or v_pages < 1 then return; end if;
+  if p_page is null or p_page < 1 or p_page > v_pages then return; end if;
+  -- one session may write at most 300 page rows in 10 minutes
+  if (select count(*) from flipbook_views
+       where session_id = p_session and viewed_at > now() - interval '10 minutes') >= 300 then
+    return;
+  end if;
+  -- coarse daily ceiling per flipbook (stops runaway spam)
+  if (select count(*) from flipbook_views
+       where flipbook_id = p_flipbook and viewed_at > now() - interval '1 day') >= 50000 then
+    return;
+  end if;
+  v_is_new := not exists (
+    select 1 from flipbook_views where flipbook_id = p_flipbook and session_id = p_session
+  );
+  insert into flipbook_views (flipbook_id, session_id, page_no, dwell_ms, user_agent)
+  values (p_flipbook, p_session, p_page,
+          greatest(0, least(coalesce(p_dwell, 0), 3600000)), left(p_ua, 255));
+  -- a view is counted once per visit, when its first page row arrives
+  if v_is_new then
+    update flipbooks set views = views + 1 where id = p_flipbook;
+  end if;
+end $$;
+
+revoke all on function record_view(uuid, text, int, int, text) from public;
+grant execute on function record_view(uuid, text, int, int, text) to anon, authenticated;
+
+-- 5b. Originals live in a PRIVATE bucket. The public never gets a permanent link;
+--     /api/original/... issues a signed link that expires in 10 minutes.
+insert into storage.buckets (id, name, public)
+values ('flipbook-originals', 'flipbook-originals', false)
+on conflict (id) do nothing;
+
+drop policy if exists originals_insert on storage.objects;
+create policy originals_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'flipbook-originals');
+drop policy if exists originals_update_own on storage.objects;
+create policy originals_update_own on storage.objects for update to authenticated
+  using (bucket_id = 'flipbook-originals' and owner = auth.uid());
+drop policy if exists originals_delete_own on storage.objects;
+create policy originals_delete_own on storage.objects for delete to authenticated
+  using (bucket_id = 'flipbook-originals' and owner = auth.uid());
+notify pgrst, 'reload schema';

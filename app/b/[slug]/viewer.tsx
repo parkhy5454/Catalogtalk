@@ -74,7 +74,6 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [zoomIdx, setZoomIdx] = useState<number | null>(null)
   // Vertical swipe toggles the chrome (header and controls), like a video player.
   const [uiHidden, setUiHidden] = useState(false)
-  const counted = useRef(false)
   const track = useRef({ page: 0, since: 0 })
 
   // 1. Read the page shape from the first image so the book keeps the catalog's proportions.
@@ -246,25 +245,18 @@ export default function Viewer({ flipbook, pages }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ratio, total, flipbook.id, pageW])
 
-  // 3. Count one view per page load (ref guard protects against dev double effects).
-  useEffect(() => {
-    if (counted.current) return
-    counted.current = true
-    createClient().rpc('increment_view', { fb_id: flipbook.id }).then(() => undefined)
-    setViews((v) => v + 1)
-  }, [flipbook.id])
+  // 3. A view is counted server-side when the visit's first page row is recorded (record_view).
 
   // 4. Page analytics: each page change logs the time spent on the page just left.
   const logView = useCallback(
     (pageNo: number, dwellMs: number) => {
       createClient()
-        .from('flipbook_views')
-        .insert({
-          flipbook_id: flipbook.id,
-          session_id: visitId(),
-          page_no: pageNo,
-          dwell_ms: Math.max(0, Math.min(dwellMs, 3_600_000)),
-          user_agent: navigator.userAgent.slice(0, 255),
+        .rpc('record_view', {
+          p_flipbook: flipbook.id,
+          p_session: visitId(),
+          p_page: pageNo,
+          p_dwell: Math.max(0, Math.min(dwellMs, 3_600_000)),
+          p_ua: navigator.userAgent.slice(0, 255),
         })
         .then(() => undefined)
     },

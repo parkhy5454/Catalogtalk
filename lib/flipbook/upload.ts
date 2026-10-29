@@ -4,6 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { RenderResult } from '@/lib/flipbook/convert'
 
 export const BUCKET = 'flipbook-files'
+// Originals are private; the viewer reaches them through /api/original/<slug>/original.<kind>.
+export const ORIGINALS_BUCKET = 'flipbook-originals'
 export const MAX_PDF_BYTES = 50 * 1024 * 1024 // applies to every supported source file
 
 export type SourceKind = 'pdf' | 'docx'
@@ -122,7 +124,7 @@ export async function createFlipbook(
 
   onStatus('원본 파일 저장 중...', 0.42)
   const originalPath = `${slug}/original.${kind}`
-  const { error: srcErr } = await supabase.storage.from(BUCKET).upload(originalPath, opts.file, {
+  const { error: srcErr } = await supabase.storage.from(ORIGINALS_BUCKET).upload(originalPath, opts.file, {
     contentType: SOURCE_MIME[kind],
     cacheControl: ASSET_CACHE,
     upsert: true,
@@ -135,7 +137,7 @@ export async function createFlipbook(
   )
 
   onStatus('저장 중...', 0.95)
-  const pdfUrl = publicUrl(supabase, originalPath)
+  const pdfUrl = `/api/original/${slug}/original.${kind}`
   const thumbUrl = await uploadThumb(supabase, slug, thumbJpg)
 
   const { data: fb, error } = await supabase
@@ -235,4 +237,9 @@ export async function deleteFlipbook(supabase: SupabaseClient, fb: FlipbookRow):
   if (unique.length > 0) {
     await supabase.storage.from(BUCKET).remove(unique).catch(() => undefined)
   }
+  // Private originals (new uploads): stored under the slug in the private bucket.
+  await supabase.storage
+    .from(ORIGINALS_BUCKET)
+    .remove([`${fb.slug}/original.pdf`, `${fb.slug}/original.docx`])
+    .catch(() => undefined)
 }
