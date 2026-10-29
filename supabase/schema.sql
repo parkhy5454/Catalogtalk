@@ -233,3 +233,10 @@ create policy flipbook_files_update_own on storage.objects for update to authent
 drop policy if exists flipbook_files_delete_own on storage.objects;
 create policy flipbook_files_delete_own on storage.objects for delete to authenticated
   using (bucket_id = 'flipbook-files' and owner = auth.uid());
+
+-- 4. Visit analytics (v4) ----------------------------------------------
+-- session_id groups the page rows of one visit. Owners read it through the existing
+-- views_owner_select policy.
+alter table flipbook_views add column if not exists session_id text;
+create index if not exists flipbook_views_session_idx on flipbook_views (flipbook_id, session_id);
+notify pgrst, 'reload schema';

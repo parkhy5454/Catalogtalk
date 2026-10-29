@@ -6,6 +6,18 @@ import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
 
+// One id per page load (one visit). Lets the owner group rows into visits.
+let cachedVisitId: string | null = null
+function visitId(): string {
+  if (!cachedVisitId) {
+    cachedVisitId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36)
+  }
+  return cachedVisitId
+}
+
 const SOUND_KEY = 'catalogtalk-page-sound'
 const BOOK_WIDTH = 1000 // logical page width; the library scales it to the container
 
@@ -249,6 +261,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         .from('flipbook_views')
         .insert({
           flipbook_id: flipbook.id,
+          session_id: visitId(),
           page_no: pageNo,
           dwell_ms: Math.max(0, Math.min(dwellMs, 3_600_000)),
           user_agent: navigator.userAgent.slice(0, 255),

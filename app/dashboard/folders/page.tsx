@@ -441,6 +441,9 @@ export default function MyBookPage() {
                       </a>
                     )}
                     <div className="fb-actions-row">
+                      <button type="button" className="btn btn-ghost" onClick={() => router.push(`/dashboard/stats/${fb.id}`)}>
+                        통계
+                      </button>
                       <button type="button" className="btn btn-ghost" onClick={() => handleCopy(fb.slug)}>
                         링크 복사
                       </button>
