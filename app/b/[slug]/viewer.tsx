@@ -39,10 +39,14 @@ function saveSoundPref(on: boolean) {
   }
 }
 
+const isTouchUI = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
 export default function Viewer({ flipbook, pages }: Props) {
   const wide = useIsWide()
   const areaRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<PageFlip | null>(null)
+  const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
+  const skipFlipSound = useRef(false) // a slide-in already played its sound
   const soundRef = useRef(true)
 
   const urls = pages.map((p) => p.image_url)
@@ -131,6 +135,15 @@ export default function Viewer({ flipbook, pages }: Props) {
     const hideStill = () => {
       still.style.display = 'none'
     }
+    // Phones: going back slides the previous page in from the left (no curl, see slidePrev).
+    const slideIn = document.createElement('img')
+    slideIn.className = 'book-still'
+    slideIn.alt = ''
+    slideIn.draggable = false
+    slideIn.style.width = `${pageW}px`
+    slideIn.style.height = `${Math.round(pageW * ratio)}px`
+    slideIn.style.zIndex = '3'
+    host.appendChild(slideIn)
     area.appendChild(host)
 
     soundRef.current = readSoundPref()
@@ -158,8 +171,36 @@ export default function Viewer({ flipbook, pages }: Props) {
 
       // The library enters the "flipping" state when a turn animation starts
       // (a finished drag or a button press), so the sound plays only for real turns.
+      const slidePrev = () => {
+        const b = book
+        if (!b) return
+        const cur = b.getCurrentPageIndex()
+        if (cur <= 0 || slideIn.getAnimations().length > 0) return
+        const prev = cur - 1
+        slideIn.src = urls[prev] ?? ''
+        slideIn.style.display = 'block'
+        hideStill()
+        if (soundRef.current) playPageTurn()
+        const anim = slideIn.animate(
+          [{ transform: 'translate(-150%, -50%)' }, { transform: 'translate(-50%, -50%)' }],
+          { duration: 380, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
+        )
+        anim.onfinish = () => {
+          if (disposed) return
+          // Jump the book to the page now shown, without a second curl or sound.
+          skipFlipSound.current = true
+          b.turnToPage(prev)
+          skipFlipSound.current = false
+          slideIn.style.display = 'none'
+          pageIdxRef.current = prev
+          setPageIdx(prev)
+          showStill(prev)
+        }
+      }
+      slidePrevRef.current = slidePrev
+
       book.on('changeState', (e) => {
-        if (e.data === 'flipping' && soundRef.current) playPageTurn()
+        if (e.data === 'flipping' && soundRef.current && !skipFlipSound.current) playPageTurn()
         // Back to rest: show the crisp still of the current page; while dragging/turning, hide it.
         if (e.data === 'read') showStill(book?.getCurrentPageIndex() ?? 0)
         else hideStill()
@@ -265,12 +306,11 @@ export default function Viewer({ flipbook, pages }: Props) {
     // Left or right swipe, same rule both ways: a fairly quick, mostly horizontal move.
     if (Math.abs(dx) > 40 && Math.abs(dy) < 80 && Math.abs(dx) > Math.abs(dy) * 1.2) {
       const forward = dx < 0
-      // On phones, swiping back is not reliable on iOS; going back uses the ‹ button, which curls fine.
-      if (!forward && window.matchMedia?.('(pointer: coarse)').matches) return
       // Wait one tick: page-flip handles the same pointerup on window after this React handler.
       window.setTimeout(() => {
         if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
         if (forward) book.flipNext()
+        else if (isTouchUI()) slidePrevRef.current?.()
         else book.flipPrev()
       }, 0)
     }
@@ -358,7 +398,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             <button
               type="button"
               className="nav-btn"
-              onClick={() => bookRef.current?.flipPrev()}
+              onClick={() => (isTouchUI() ? slidePrevRef.current?.() : bookRef.current?.flipPrev())}
               disabled={!canPrev || !ready}
               aria-label="이전 페이지"
             >
