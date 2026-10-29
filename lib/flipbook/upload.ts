@@ -125,10 +125,11 @@ export async function createFlipbook(
 
   onStatus('원본 파일 저장 중...', 0.42)
   const originalPath = `${slug}/original.${kind}`
+  // upsert: false -- the slug is new, and upsert would need a SELECT policy on the private bucket.
   const { error: srcErr } = await supabase.storage.from(ORIGINALS_BUCKET).upload(originalPath, opts.file, {
     contentType: SOURCE_MIME[kind],
     cacheControl: ASSET_CACHE,
-    upsert: true,
+    upsert: false,
   })
   if (srcErr) throw new Error(`원본 파일 업로드 실패: ${srcErr.message}`)
 
