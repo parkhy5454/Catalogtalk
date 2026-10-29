@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { playPageTurn } from '@/lib/flipbook/sound'
 
 const MIN_ZOOM = 1
 const MAX_ZOOM = 4
@@ -16,23 +17,39 @@ export default function ZoomView({
   index,
   onIndexChange,
   onClose,
+  soundOn,
 }: {
   urls: string[]
   index: number
   onIndexChange: (i: number) => void
   onClose: () => void
+  soundOn: boolean
 }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Pt>())
-  const g = useRef({ start: { x: 0, y: 0 } as Pt, startPan: { x: 0, y: 0 } as Pt, startZoom: 1, startDist: 0, pinched: false, moved: false, t: 0 })
+  const g = useRef({
+    start: { x: 0, y: 0 } as Pt,
+    startPan: { x: 0, y: 0 } as Pt,
+    startZoom: 1,
+    startDist: 0,
+    pinched: false,
+    moved: false,
+    t: 0,
+    edgeLeft: false, // zoomed and already showing the left edge when the drag started
+    edgeRight: false, // zoomed and already showing the right edge when the drag started
+  })
   const lastTap = useRef<{ t: number; p: Pt } | null>(null)
   const [zoom, setZoom] = useState(MIN_ZOOM)
   const [pan, setPan] = useState<Pt>({ x: 0, y: 0 })
+  const [dir, setDir] = useState(0) // +1 next, -1 prev, 0 on open: drives the slide-in
 
   const last = urls.length - 1
   const go = (delta: number) => {
     const next = clamp(index + delta, 0, last)
-    if (next !== index) onIndexChange(next)
+    if (next === index) return
+    setDir(delta)
+    if (soundOn) playPageTurn()
+    onIndexChange(next)
   }
 
   // A new page always starts unzoomed.
@@ -44,8 +61,8 @@ export default function ZoomView({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowRight') onIndexChange(clamp(index + 1, 0, last))
-      if (e.key === 'ArrowLeft') onIndexChange(clamp(index - 1, 0, last))
+      if (e.key === 'ArrowRight') go(1)
+      if (e.key === 'ArrowLeft') go(-1)
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -54,7 +71,7 @@ export default function ZoomView({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [onClose, onIndexChange, index, last])
+  }, [onClose, index, last, soundOn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const clampPan = (p: Pt, z: number): Pt => {
     const rect = stageRef.current?.getBoundingClientRect()
@@ -75,6 +92,10 @@ export default function ZoomView({
       s.pinched = false
       s.moved = false
       s.t = Date.now()
+      const rect = stageRef.current?.getBoundingClientRect()
+      const mx = rect && zoom > 1 ? ((zoom - 1) * rect.width) / 2 : 0
+      s.edgeLeft = mx > 0 && pan.x >= mx - 2
+      s.edgeRight = mx > 0 && pan.x <= -mx + 2
     } else if (pointers.current.size === 2) {
       const [a, b] = Array.from(pointers.current.values())
       s.startDist = dist(a, b)
@@ -113,11 +134,16 @@ export default function ZoomView({
       s.pinched = false
       return
     }
-    // Horizontal swipe at normal zoom turns the page.
-    if (zoom <= 1.05 && s.moved) {
+    // Horizontal swipe turns the page: anywhere at normal zoom, and when zoomed only once
+    // the picture is already at the side the reader is pushing toward.
+    if (s.moved) {
       const dx = e.clientX - s.start.x
       const dy = e.clientY - s.start.y
-      if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) go(dx < 0 ? 1 : -1)
+      if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+        if (zoom <= 1.05) go(dx < 0 ? 1 : -1)
+        else if (dx < 0 && s.edgeRight) go(1)
+        else if (dx > 0 && s.edgeLeft) go(-1)
+      }
       return
     }
     if (!s.moved && Date.now() - s.t < 300) {
@@ -146,14 +172,17 @@ export default function ZoomView({
         onPointerUp={up}
         onPointerCancel={up}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={urls[index]}
-          alt={`${index + 1}페이지 확대`}
-          draggable={false}
-          className="zoom-img"
-          style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
-        />
+        {/* Keyed by page so each page slides in from the side it was turned from. */}
+        <div key={index} className="zoom-page" style={{ ['--dir' as string]: dir }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={urls[index]}
+            alt={`${index + 1}페이지 확대`}
+            draggable={false}
+            className="zoom-img"
+            style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
+          />
+        </div>
       </div>
       <button
         type="button"

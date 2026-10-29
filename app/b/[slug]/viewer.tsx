@@ -356,6 +356,7 @@ export default function Viewer({ flipbook, pages }: Props) {
           urls={urls}
           index={zoomIdx}
           onIndexChange={setZoomIdx}
+          soundOn={soundOn}
           onClose={() => {
             // Closing the zoom view moves the book to the page the reader ended on.
             const target = zoomIdx
