@@ -67,6 +67,8 @@ export async function renderPdfPages(
     cMapUrl: `${PDFJS_BASE}/cmaps/`,
     cMapPacked: true,
     standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
+    // Non-embedded Korean fonts (e.g. Malgun Gothic) are only drawn if the device has them.
+    useSystemFonts: true,
   }).promise
   const pages: RenderedPage[] = []
   let thumbJpg: Blob | null = null
