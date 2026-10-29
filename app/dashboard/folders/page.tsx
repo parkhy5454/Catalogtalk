@@ -117,7 +117,9 @@ export default function MyBookPage() {
         setPull(0)
         return
       }
-      last = Math.min(d * 0.5, 96)
+      // Ignore small finger movements so the list does not twitch while scrolling.
+      if (d < 12) return
+      last = Math.min((d - 12) * 0.5, 96)
       setPull(last)
     }
     const onEnd = async () => {
@@ -285,7 +287,7 @@ export default function MyBookPage() {
       <h1 className="panel-title" style={{ margin: '4px 4px 14px', fontSize: 22 }}>My Book</h1>
 
       {(pull > 0 || refreshing) && (
-        <div className="ptr" style={{ height: refreshing ? 44 : pull }} role="status">
+        <div className="ptr ptr-fixed" style={{ height: refreshing ? 44 : pull }} role="status">
           {refreshing ? '새로고침 중...' : pull >= 64 ? '놓으면 새로고침' : '당겨서 새로고침'}
         </div>
       )}
@@ -328,7 +330,7 @@ export default function MyBookPage() {
         </div>
 
         {folders.length > 0 && (
-          <div className="fb-actions-row" style={{ flexWrap: 'wrap', marginBottom: 12 }} aria-label="폴더 필터">
+          <div className="filter-row" style={{ marginBottom: 12 }} aria-label="폴더 필터">
             <button
               type="button"
               className="btn btn-ghost"
@@ -440,7 +442,7 @@ export default function MyBookPage() {
                         보기
                       </a>
                     )}
-                    <div className="fb-actions-row">
+                    <div className="fb-actions-row fb-card-actions">
                       <button type="button" className="btn btn-ghost" onClick={() => router.push(`/dashboard/stats/${fb.id}`)}>
                         통계
                       </button>

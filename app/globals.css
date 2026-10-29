@@ -1453,3 +1453,39 @@ body {
   font-size: 14px;
   font-weight: 900;
 }
+
+/* My Book: pull-to-refresh overlay does not push the list; filter chips scroll sideways;
+   card action buttons wrap two per row so the 삭제 button stays on screen. */
+.ptr-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + 56px);
+  z-index: 30;
+  background: var(--bg, #f3f3ee);
+  pointer-events: none;
+}
+.filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.filter-row .btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 40px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.fb-card-actions {
+  flex-wrap: wrap;
+}
+.fb-card-actions .btn {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 0;
+}
