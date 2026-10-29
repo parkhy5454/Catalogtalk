@@ -918,19 +918,10 @@ button {
 .zoom-big:active { filter: brightness(0.92); }
 .zoom-big[aria-pressed='true'] { background: #fff; }
 
-/* Page slides in from the side it was turned from (the zoom view's page change). */
 .zoom-page {
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: zoomPageIn 0.32s ease-out;
-}
-@keyframes zoomPageIn {
-  from { opacity: 0.25; translate: calc(var(--dir, 0) * 56px) 0; }
-  to { opacity: 1; translate: 0 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .zoom-page { animation: none; }
 }

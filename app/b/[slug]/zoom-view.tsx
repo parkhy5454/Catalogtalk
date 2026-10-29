@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { playPageTurn } from '@/lib/flipbook/sound'
 
 const MIN_ZOOM = 1
 const MAX_ZOOM = 4
@@ -16,15 +15,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export default function ZoomView({
   urls,
   index,
-  onIndexChange,
+  onTurn,
   onClose,
-  soundOn,
 }: {
   urls: string[]
   index: number
-  onIndexChange: (i: number) => void
+  /** Ask the viewer to turn the book by one page (the book draws the curl and sound). */
+  onTurn: (delta: 1 | -1) => void
   onClose: () => void
-  soundOn: boolean
 }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Pt>())
@@ -42,15 +40,11 @@ export default function ZoomView({
   const lastTap = useRef<{ t: number; p: Pt } | null>(null)
   const [zoom, setZoom] = useState(MIN_ZOOM)
   const [pan, setPan] = useState<Pt>({ x: 0, y: 0 })
-  const [dir, setDir] = useState(0) // +1 next, -1 prev, 0 on open: drives the slide-in
 
   const last = urls.length - 1
-  const go = (delta: number) => {
-    const next = clamp(index + delta, 0, last)
-    if (next === index) return
-    setDir(delta)
-    if (soundOn) playPageTurn()
-    onIndexChange(next)
+  const go = (delta: 1 | -1) => {
+    if (index + delta < 0 || index + delta > last) return
+    onTurn(delta)
   }
 
   // A new page always starts unzoomed.
@@ -72,7 +66,7 @@ export default function ZoomView({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [onClose, index, last, soundOn]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [onClose, index, last, onTurn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const clampPan = (p: Pt, z: number): Pt => {
     const rect = stageRef.current?.getBoundingClientRect()
@@ -174,7 +168,7 @@ export default function ZoomView({
         onPointerCancel={up}
       >
         {/* Keyed by page so each page slides in from the side it was turned from. */}
-        <div key={index} className="zoom-page" style={{ ['--dir' as string]: dir }}>
+        <div key={index} className="zoom-page">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={urls[index]}

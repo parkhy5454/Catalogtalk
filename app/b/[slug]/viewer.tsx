@@ -361,8 +361,14 @@ export default function Viewer({ flipbook, pages }: Props) {
         <ZoomView
           urls={urls}
           index={zoomIdx}
-          onIndexChange={setZoomIdx}
-          soundOn={soundOn}
+          onTurn={(delta) => {
+            // Close the zoom view, then let the book curl to the next/previous page with its sound.
+            const book = bookRef.current
+            setZoomIdx(null)
+            if (!book) return
+            if (delta > 0) book.flipNext()
+            else book.flipPrev()
+          }}
           onClose={() => {
             // Closing the zoom view moves the book to the page the reader ended on.
             const target = zoomIdx
