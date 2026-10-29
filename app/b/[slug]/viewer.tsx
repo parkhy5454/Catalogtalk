@@ -121,7 +121,10 @@ export default function Viewer({ flipbook, pages }: Props) {
     still.style.width = `${pageW}px`
     still.style.height = `${Math.round(pageW * ratio)}px`
     host.appendChild(still)
+    // TEMP diagnostic: add ?still=0 to the URL to hide the resting image and test the page-turn alone.
+    const stillOff = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('still') === '0'
     const showStill = (i: number) => {
+      if (stillOff) return
       still.src = urls[i] ?? ''
       still.style.display = 'block'
     }
