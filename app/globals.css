@@ -925,3 +925,18 @@ button {
   align-items: center;
   justify-content: center;
 }
+
+/* Page-turn layers: keep iOS Safari from caching them at a lower resolution than the screen.
+   page-flip sets its own inline transforms; these rules only drop the promoted-layer hints. */
+.book-host .stf__parent,
+.book-host .stf__block,
+.book-host .stf__item {
+  will-change: auto !important;
+}
+.book-host .stf__item img,
+.book-host .stf__block img {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform-style: flat;
+  transform-style: flat;
+}
