@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { scrollIntoViewOnFocus } from '@/lib/ui'
+import { formatPhone } from '@/lib/phone'
 
 type Msg = { ok: boolean; text: string } | null
 
@@ -123,7 +124,7 @@ export default function ProfilePage() {
               <input
                 className="input"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhone(e.target.value))}
                 onFocus={scrollIntoViewOnFocus}
                 placeholder="010-0000-0000"
                 type="tel"

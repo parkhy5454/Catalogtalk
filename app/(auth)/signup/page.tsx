@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { scrollIntoViewOnFocus } from '@/lib/ui'
+import { formatPhone } from '@/lib/phone'
 
 // Referral codes are 8 uppercase hex characters (see schema.sql). Anything else is ignored.
 const REF_PATTERN = /^[A-Z0-9]{4,16}$/
@@ -97,7 +98,7 @@ export default function SignupPage() {
               <input
                 className="input"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhone(e.target.value))}
                 onFocus={scrollIntoViewOnFocus}
                 placeholder="휴대폰 번호 (선택)"
                 type="tel"
