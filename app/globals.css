@@ -886,19 +886,37 @@ button {
 .zoom-nav:disabled { opacity: 0.3; cursor: default; }
 .zoom-nav-prev { left: 8px; }
 .zoom-nav-next { right: 8px; }
-.zoom-count {
+.zoom-bar {
   position: absolute;
   left: 50%;
   bottom: 52px;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+  white-space: nowrap;
+}
+.zoom-count {
   padding: 6px 14px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 14px;
-  white-space: nowrap;
-  z-index: 2;
 }
+.zoom-big {
+  min-height: 48px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: #fee500;
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.zoom-big:active { filter: brightness(0.92); }
+.zoom-big[aria-pressed='true'] { background: #fff; }
 
 /* Page slides in from the side it was turned from (the zoom view's page change). */
 .zoom-page {

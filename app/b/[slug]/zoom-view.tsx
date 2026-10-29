@@ -5,6 +5,7 @@ import { playPageTurn } from '@/lib/flipbook/sound'
 const MIN_ZOOM = 1
 const MAX_ZOOM = 4
 const DOUBLE_TAP_ZOOM = 2.5
+const BIG_ZOOM = 2 // "글자 크게" button: fills the width so small text is readable
 
 type Pt = { x: number; y: number }
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -202,7 +203,20 @@ export default function ZoomView({
       >
         ›
       </button>
-      <div className="zoom-count" aria-live="polite">{index + 1} / {urls.length}쪽</div>
+      <div className="zoom-bar">
+        <span className="zoom-count" aria-live="polite">{index + 1} / {urls.length}쪽</span>
+        <button
+          type="button"
+          className="zoom-big"
+          aria-pressed={zoom > 1.05}
+          onClick={() => {
+            setZoom(zoom > 1.05 ? MIN_ZOOM : BIG_ZOOM)
+            setPan({ x: 0, y: 0 })
+          }}
+        >
+          {zoom > 1.05 ? '맞춤으로' : '글자 크게'}
+        </button>
+      </div>
       <div className="zoom-hint">두 손가락으로 확대 · 좌우로 밀어 넘기기 · 닫기로 돌아가기</div>
     </div>
   )

@@ -275,8 +275,14 @@ export default function Viewer({ flipbook, pages }: Props) {
             </button>
           )}
           {flipbook.pdf_url && (
-            <a className="btn btn-dark viewer-pill" href={flipbook.pdf_url} target="_blank" rel="noopener">
-              PDF
+            <a
+              className="btn btn-dark viewer-pill"
+              href={flipbook.pdf_url}
+              target="_blank"
+              rel="noopener"
+              title="원본 PDF는 글자가 가장 선명해요"
+            >
+              PDF 원본
             </a>
           )}
         </div>

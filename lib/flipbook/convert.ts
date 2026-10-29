@@ -4,7 +4,7 @@ import * as pdfjsLib from 'pdfjs-dist/build/pdf'
 
 const PDFJS_VERSION = '3.11.174'
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
-const TARGET_WIDTH = 2000 // px; sharp enough for small Korean body text on 3x phones when zoomed
+const TARGET_WIDTH = 2800 // px; small Korean body text stays sharp when zoomed on 3x phones
 const WEBP_QUALITY = 0.9
 
 let workerReady = false
