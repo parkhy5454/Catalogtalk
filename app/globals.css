@@ -938,3 +938,14 @@ button {
   z-index: 2;
   display: none;
 }
+
+/* Phones: page-flip must not take touches itself (it cancels backward swipes on iOS).
+   Swipes are handled by the viewer, which calls flipNext/flipPrev so both directions curl the same way.
+   Mouse and trackpad on desktop keep the library's own drag. */
+@media (pointer: coarse) {
+  .book-host .stf__parent,
+  .book-host .stf__block,
+  .book-host .stf__item {
+    pointer-events: none !important;
+  }
+}
