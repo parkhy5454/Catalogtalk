@@ -181,9 +181,14 @@ export default function Viewer({ flipbook, pages }: Props) {
         slideIn.style.display = 'block'
         hideStill()
         if (soundRef.current) playPageTurn()
+        // The previous page opens out from the left (spine) edge, like a page folding back.
+        slideIn.style.transformOrigin = 'left center'
         const anim = slideIn.animate(
-          [{ transform: 'translate(-150%, -50%)' }, { transform: 'translate(-50%, -50%)' }],
-          { duration: 380, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
+          [
+            { transform: 'translate(-50%, -50%) perspective(1400px) rotateY(-80deg)', opacity: 0.4 },
+            { transform: 'translate(-50%, -50%) perspective(1400px) rotateY(0deg)', opacity: 1 },
+          ],
+          { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
         )
         anim.onfinish = () => {
           if (disposed) return
