@@ -265,6 +265,8 @@ export default function Viewer({ flipbook, pages }: Props) {
     // Left or right swipe, same rule both ways: a fairly quick, mostly horizontal move.
     if (Math.abs(dx) > 40 && Math.abs(dy) < 80 && Math.abs(dx) > Math.abs(dy) * 1.2) {
       const forward = dx < 0
+      // On phones, swiping back is not reliable on iOS; going back uses the ‹ button, which curls fine.
+      if (!forward && window.matchMedia?.('(pointer: coarse)').matches) return
       // Wait one tick: page-flip handles the same pointerup on window after this React handler.
       window.setTimeout(() => {
         if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
