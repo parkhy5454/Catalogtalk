@@ -5,11 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { copyText } from '@/lib/clipboard'
 import {
   convertExisting,
-  createFlipbook,
   deleteFlipbook,
   type FlipbookRow,
-  MAX_PDF_BYTES,
-  sourceKindOf,
 } from '@/lib/flipbook/upload'
 
 const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
@@ -64,13 +61,10 @@ export default function DashboardPage() {
   const [flipbooks, setFlipbooks] = useState<FlipbookRow[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [folderFilter, setFolderFilter] = useState<string>(FOLDER_FILTER_ALL)
-  const [uploadFolder, setUploadFolder] = useState<string>('')
-  const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
-  const [dragOver, setDragOver] = useState(false)
   const [convertingId, setConvertingId] = useState<string | null>(null)
   const [shareOpenId, setShareOpenId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -82,7 +76,6 @@ export default function DashboardPage() {
     if (!userId) return
     await Promise.all([fetchFlipbooks(userId), fetchFolders(userId)])
   }
-  const fileInput = useRef<HTMLInputElement>(null)
 
   const fetchFlipbooks = useCallback(
     async (uid: string) => {
@@ -187,49 +180,6 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleFile = async (file: File) => {
-    setMessage(null)
-    if (busy || !userId) return
-    const kind = sourceKindOf(file.name)
-    if (!kind) {
-      setMessage({
-        kind: 'error',
-        text: /\.hwpx?$/i.test(file.name)
-          ? '한글(HWP) 파일은 한글 프로그램에서 PDF로 저장한 뒤 올려 주세요'
-          : 'PDF 또는 Word(.docx) 파일만 올릴 수 있어요',
-      })
-      return
-    }
-    if (file.size > MAX_PDF_BYTES) {
-      setMessage({ kind: 'error', text: '50MB 이하 파일만 가능해요' })
-      return
-    }
-    const name = title.trim() || file.name.replace(/\.(pdf|docx)$/i, '')
-    setBusy(true)
-    setProgress(0)
-    try {
-      const fb = await createFlipbook(
-        supabase,
-        { userId, title: name, file, folderId: uploadFolder || null },
-        kind === 'docx' ? renderDocx : renderPdf,
-        (text, p) => {
-          setStatus(text)
-          setProgress(Math.round(p * 100))
-        }
-      )
-      setTitle('')
-      await fetchFlipbooks(userId)
-      setMessage({ kind: 'success', text: `업로드 완료! 링크: /b/${fb.slug}` })
-    } catch (err) {
-      setMessage({ kind: 'error', text: friendlyError(err) })
-    } finally {
-      setBusy(false)
-      setStatus('')
-      setProgress(0)
-      if (fileInput.current) fileInput.current.value = ''
-    }
-  }
-
   const handleConvert = async (fb: FlipbookRow) => {
     if (busy || !userId) return
     setBusy(true)
@@ -305,10 +255,6 @@ export default function DashboardPage() {
 
   const totalViews = flipbooks.reduce((s, f) => s + (f.views || 0), 0)
   const planInfo = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
-  // Referral bonuses add slots on top of the plan's base limit.
-  const limit = planInfo.limit === null ? null : planInfo.limit + bonus
-  const atLimit = limit !== null && flipbooks.length >= limit
-
   return (
     <main className="container section">
       <div className="stats" aria-label="요약">
@@ -334,100 +280,6 @@ export default function DashboardPage() {
           {refreshing ? '새로고침 중...' : pull >= 64 ? '놓으면 새로고침' : '당겨서 새로고침'}
         </div>
       )}
-
-      <section className="panel" id="create" aria-labelledby="create-title">
-        <div className="panel-head">
-          <h2 className="panel-title" id="create-title">새 플립북 만들기</h2>
-          <span className="pill">PDF · Word → 링크 3초</span>
-        </div>
-
-        {atLimit ? (
-          <div className="notice notice-info">
-            현재 플립북 개수({limit}개)를 모두 사용했어요. 요금제를 올리거나 친구를 추천하면 더 만들 수 있어요.
-          </div>
-        ) : (
-          <div className="form-stack">
-            <label className="field">
-              <span className="field-label">카탈로그 제목 (비우면 파일 이름을 써요)</span>
-              <input
-                className="input"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: 2024 쿨오토모빌 카탈로그"
-                maxLength={100}
-                disabled={busy}
-              />
-            </label>
-
-            {folders.length > 0 && (
-              <label className="field">
-                <span className="field-label">저장할 폴더</span>
-                <select
-                  className="input"
-                  value={uploadFolder}
-                  onChange={(e) => setUploadFolder(e.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">폴더 없음</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <div
-              className={`dropzone${dragOver ? ' is-over' : ''}`}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOver(true)
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOver(false)
-                const f = e.dataTransfer.files[0]
-                if (f && !busy) handleFile(f)
-              }}
-            >
-              <div className="dropzone-icon" aria-hidden="true">{busy ? '⏳' : '📄'}</div>
-              {busy ? (
-                <>
-                  <div className="dropzone-text" role="status">{status || '처리 중...'}</div>
-                  <div className="progress" style={{ maxWidth: 320, width: '100%' }} aria-hidden="true">
-                    <span style={{ width: `${progress}%` }} />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="dropzone-text">PDF 또는 Word(.docx)를 여기에 끌어놓거나 아래 버튼을 누르세요</div>
-                  <div className="dropzone-sub">최대 50MB · 한글(HWP)은 PDF로 저장해 올려 주세요</div>
-                </>
-              )}
-              <label className={`btn btn-primary${busy ? ' btn-disabled' : ''}`} style={{ marginTop: 6 }}>
-                파일 선택
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) handleFile(f)
-                  }}
-                  disabled={busy}
-                  className="sr-only"
-                />
-              </label>
-            </div>
-          </div>
-        )}
-
-        {message && (
-          <div className={`notice ${message.kind === 'error' ? 'notice-error' : 'notice-success'}`} role="status" style={{ marginTop: 16 }}>
-            {message.text}
-          </div>
-        )}
-      </section>
 
       <section className="panel" aria-labelledby="list-title">
         <div className="panel-head">

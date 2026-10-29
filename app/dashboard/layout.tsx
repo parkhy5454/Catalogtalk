@@ -66,7 +66,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span>{tab.label}</span>
             </Link>
           ))}
-          <Link href="/dashboard#create" className="tab-plus-link" aria-label="새 플립북 만들기">
+          <Link href="/dashboard/new" className="tab-plus-link" aria-label="새 플립북 만들기">
             <span className="tab-plus" aria-hidden="true">+</span>
           </Link>
           {RIGHT_TABS.map((tab) => (
