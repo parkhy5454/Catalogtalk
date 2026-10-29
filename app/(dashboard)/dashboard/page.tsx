@@ -11,6 +11,7 @@ import {
   deleteFlipbook,
   type FlipbookRow,
   MAX_PDF_BYTES,
+  sourceKindOf,
 } from '@/lib/flipbook/upload'
 
 const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
@@ -24,6 +25,16 @@ const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
 async function renderPdf(buf: ArrayBuffer, onPage: (d: number, t: number) => void) {
   const mod = await import('@/lib/flipbook/convert')
   return mod.renderPdfPages(buf, onPage)
+}
+
+async function renderDocx(buf: ArrayBuffer, onPage: (d: number, t: number) => void) {
+  const mod = await import('@/lib/flipbook/docx')
+  return mod.renderDocxPages(buf, onPage)
+}
+
+// Stored original decides the converter (.docx originals keep their extension in storage).
+function rendererForUrl(url: string | null) {
+  return /\.docx(\?|$)/i.test(url ?? '') ? renderDocx : renderPdf
 }
 
 function friendlyError(err: unknown): string {
@@ -92,23 +103,28 @@ export default function DashboardPage() {
   const handleFile = async (file: File) => {
     setMessage(null)
     if (busy || !userId) return
-    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
-    if (!isPdf) {
-      setMessage({ kind: 'error', text: 'PDF 파일만 업로드할 수 있어요' })
+    const kind = sourceKindOf(file.name)
+    if (!kind) {
+      setMessage({
+        kind: 'error',
+        text: /\.hwpx?$/i.test(file.name)
+          ? '한글(HWP) 파일은 한글 프로그램에서 PDF로 저장한 뒤 올려 주세요'
+          : 'PDF 또는 Word(.docx) 파일만 올릴 수 있어요',
+      })
       return
     }
     if (file.size > MAX_PDF_BYTES) {
       setMessage({ kind: 'error', text: '50MB 이하 파일만 가능해요' })
       return
     }
-    const name = title.trim() || file.name.replace(/\.pdf$/i, '')
+    const name = title.trim() || file.name.replace(/\.(pdf|docx)$/i, '')
     setBusy(true)
     setProgress(0)
     try {
       const fb = await createFlipbook(
         supabase,
         { userId, title: name, file },
-        renderPdf,
+        kind === 'docx' ? renderDocx : renderPdf,
         (text, p) => {
           setStatus(text)
           setProgress(Math.round(p * 100))
@@ -133,7 +149,7 @@ export default function DashboardPage() {
     setConvertingId(fb.id)
     setMessage(null)
     try {
-      await convertExisting(supabase, fb, renderPdf, (text, p) => {
+      await convertExisting(supabase, fb, rendererForUrl(fb.pdf_url), (text, p) => {
         setStatus(text)
         setProgress(Math.round(p * 100))
       })
@@ -261,8 +277,8 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    <div className="dropzone-text">PDF를 여기에 끌어놓거나 아래 버튼을 누르세요</div>
-                    <div className="dropzone-sub">최대 50MB · 카톡에서 바로 보이는 플립북으로 변환</div>
+                    <div className="dropzone-text">PDF 또는 Word(.docx)를 여기에 끌어놓거나 아래 버튼을 누르세요</div>
+                    <div className="dropzone-sub">최대 50MB · 한글(HWP)은 PDF로 저장해 올려 주세요</div>
                   </>
                 )}
                 <label className={`btn btn-primary${busy ? ' btn-disabled' : ''}`} style={{ marginTop: 6 }}>
@@ -270,7 +286,7 @@ export default function DashboardPage() {
                   <input
                     ref={fileInput}
                     type="file"
-                    accept="application/pdf,.pdf"
+                    accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     onChange={(e) => {
                       const f = e.target.files?.[0]
                       if (f) handleFile(f)

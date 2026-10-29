@@ -25,7 +25,7 @@ export type RenderResult = {
   thumbJpg: Blob
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'webp' | 'jpg' }> {
+export function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'webp' | 'jpg' }> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (webp) => {
@@ -43,7 +43,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'we
   })
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
+export function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error('썸네일 생성에 실패했어요'))),

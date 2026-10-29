@@ -4,7 +4,20 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { RenderResult } from '@/lib/flipbook/convert'
 
 export const BUCKET = 'flipbook-files'
-export const MAX_PDF_BYTES = 50 * 1024 * 1024
+export const MAX_PDF_BYTES = 50 * 1024 * 1024 // applies to every supported source file
+
+export type SourceKind = 'pdf' | 'docx'
+const SOURCE_MIME: Record<SourceKind, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+/** Which converter a file needs, or null if it is not supported (HWP must be saved as PDF first). */
+export function sourceKindOf(name: string): SourceKind | null {
+  if (/\.pdf$/i.test(name)) return 'pdf'
+  if (/\.docx$/i.test(name)) return 'docx'
+  return null
+}
 const UPLOAD_CONCURRENCY = 4
 const ASSET_CACHE = '31536000' // 1 year: asset paths are unique per slug + page
 
@@ -98,19 +111,22 @@ export async function createFlipbook(
   render: Render,
   onStatus: (text: string, progress: number) => void
 ): Promise<FlipbookRow> {
+  const kind = sourceKindOf(opts.file.name)
+  if (!kind) throw new Error('PDF 또는 Word(.docx) 파일만 올릴 수 있어요')
   const slug = makeSlug()
   const buf = await opts.file.arrayBuffer()
 
-  onStatus('PDF 페이지를 이미지로 변환하는 중...', 0)
+  onStatus('페이지를 이미지로 변환하는 중...', 0)
   const { numPages, pages, thumbJpg } = await render(buf.slice(0), (d, t) => onStatus(`페이지 변환 중 ${d} / ${t}`, d / t * 0.4))
 
-  onStatus('원본 PDF 저장 중...', 0.42)
-  const { error: pdfErr } = await supabase.storage.from(BUCKET).upload(`${slug}/original.pdf`, opts.file, {
-    contentType: 'application/pdf',
+  onStatus('원본 파일 저장 중...', 0.42)
+  const originalPath = `${slug}/original.${kind}`
+  const { error: srcErr } = await supabase.storage.from(BUCKET).upload(originalPath, opts.file, {
+    contentType: SOURCE_MIME[kind],
     cacheControl: ASSET_CACHE,
     upsert: true,
   })
-  if (pdfErr) throw new Error(`PDF 업로드 실패: ${pdfErr.message}`)
+  if (srcErr) throw new Error(`원본 파일 업로드 실패: ${srcErr.message}`)
 
   onStatus('페이지 이미지 업로드 중...', 0.45)
   const uploaded = await uploadPages(supabase, slug, pages, (d, t) =>
@@ -118,7 +134,7 @@ export async function createFlipbook(
   )
 
   onStatus('저장 중...', 0.95)
-  const pdfUrl = publicUrl(supabase, `${slug}/original.pdf`)
+  const pdfUrl = publicUrl(supabase, originalPath)
   const thumbUrl = await uploadThumb(supabase, slug, thumbJpg)
 
   const { data: fb, error } = await supabase

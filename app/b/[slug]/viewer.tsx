@@ -361,7 +361,7 @@ export default function Viewer({ flipbook, pages }: Props) {
               rel="noopener"
               title="원본 PDF는 글자가 가장 선명해요"
             >
-              PDF 원본
+              원본 파일
             </a>
           )}
         </div>
