@@ -4,8 +4,10 @@ import * as pdfjsLib from 'pdfjs-dist/build/pdf'
 
 const PDFJS_VERSION = '3.11.174'
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
-const TARGET_WIDTH = 2800 // px; small Korean body text stays sharp when zoomed on 3x phones
-const WEBP_QUALITY = 0.9
+// Match the source: scanned/catalog PDFs often embed page images at ~1200px wide.
+// Rendering far larger only upscales them, which looks blurry on phones.
+const TARGET_WIDTH = 1600 // px
+const WEBP_QUALITY = 0.95 // high quality: avoids a second round of visible compression
 
 let workerReady = false
 function ensureWorker() {
@@ -32,7 +34,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'we
         canvas.toBlob(
           (jpg) => (jpg ? resolve({ blob: jpg, ext: 'jpg' }) : reject(new Error('이미지 변환에 실패했어요'))),
           'image/jpeg',
-          0.85
+          0.95
         )
       },
       'image/webp',
