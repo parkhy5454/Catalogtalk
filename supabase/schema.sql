@@ -28,6 +28,21 @@ create table if not exists flipbooks (
   created_at timestamptz default now()
 );
 alter table flipbooks add column if not exists thumb_url text;
+
+-- v3: profile fields, referral codes, bonus flipbook slots, and folders
+alter table customers add column if not exists name text;
+alter table customers add column if not exists phone text;
+alter table customers add column if not exists referral_code text unique;
+alter table customers add column if not exists referred_by uuid references customers(id) on delete set null;
+alter table customers add column if not exists bonus_flipbooks int not null default 0;
+
+create table if not exists folders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  created_at timestamptz default now()
+);
+alter table flipbooks add column if not exists folder_id uuid references folders(id) on delete set null;
 alter table flipbooks add column if not exists page_count int not null default 0;
 
 create table if not exists flipbook_pages (
@@ -63,6 +78,14 @@ create policy customers_select_own on customers for select to authenticated
 drop policy if exists customers_update_own on customers;
 create policy customers_update_own on customers for update to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+alter table folders enable row level security;
+drop policy if exists folders_owner_all on folders;
+create policy folders_owner_all on folders for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+revoke update on customers from authenticated;
+grant update (name, phone, company_name) on customers to authenticated;
 
 -- flipbooks: owners manage their own rows. Anonymous viewers never SELECT this table
 -- directly (that would expose every catalog); they use get_flipbook() below.
@@ -123,17 +146,43 @@ grant execute on function increment_view(uuid) to anon, authenticated;
 
 -- Create a customers row automatically when a user signs up.
 -- (Client-side insert is impossible under RLS when email confirmation is on.)
+-- A valid referral code (signup metadata "ref") gives the new user AND the referrer +1 flipbook slot.
 create or replace function handle_new_user()
 returns trigger
 language plpgsql security definer set search_path = public
 as $$
+declare
+  v_ref text := nullif(upper(new.raw_user_meta_data ->> 'ref'), '');
+  v_referrer uuid;
+  v_new uuid;
 begin
-  insert into customers (user_id, email, company_name)
-  values (new.id, new.email, new.raw_user_meta_data ->> 'company_name')
-  on conflict (email) do nothing;
+  if v_ref is not null then
+    select id into v_referrer from customers where referral_code = v_ref limit 1;
+  end if;
+
+  insert into customers (user_id, email, company_name, name, phone, referral_code, referred_by, bonus_flipbooks)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data ->> 'company_name',
+    new.raw_user_meta_data ->> 'name',
+    new.raw_user_meta_data ->> 'phone',
+    upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8)),
+    v_referrer,
+    case when v_referrer is not null then 1 else 0 end
+  )
+  on conflict (email) do nothing
+  returning id into v_new;
+
+  if v_new is not null and v_referrer is not null then
+    update customers set bonus_flipbooks = bonus_flipbooks + 1 where id = v_referrer;
+  end if;
   return new;
 end;
 $$;
+update customers set referral_code = upper(substr(md5(random()::text || clock_timestamp()::text || id::text), 1, 8))
+  where referral_code is null;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -146,13 +195,16 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   v_plan text;
+  v_bonus int;
   v_limit int;
   v_count int;
 begin
-  select coalesce(c.plan, 'free') into v_plan from customers c where c.user_id = new.user_id;
+  select coalesce(c.plan, 'free'), coalesce(c.bonus_flipbooks, 0)
+    into v_plan, v_bonus
+    from customers c where c.user_id = new.user_id;
   v_limit := case coalesce(v_plan, 'free')
-    when 'free' then 3
-    when 'starter' then 20
+    when 'free' then 3 + v_bonus
+    when 'starter' then 20 + v_bonus
     else null
   end;
   if v_limit is not null then
