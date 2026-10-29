@@ -16,8 +16,6 @@ const PLAN_LIMITS: Record<string, { label: string; limit: number | null }> = {
   team: { label: 'Team (무제한)', limit: null },
 }
 
-const FOLDER_FILTER_ALL = 'all'
-const FOLDER_FILTER_NONE = 'none'
 
 type Folder = { id: string; name: string }
 
@@ -60,7 +58,6 @@ export default function DashboardPage() {
   const [bonus, setBonus] = useState<number>(0)
   const [flipbooks, setFlipbooks] = useState<FlipbookRow[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
-  const [folderFilter, setFolderFilter] = useState<string>(FOLDER_FILTER_ALL)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [progress, setProgress] = useState(0)
@@ -243,18 +240,10 @@ export default function DashboardPage() {
   }
 
   const shareTarget = flipbooks.find((f) => f.id === shareOpenId) ?? null
-  const visibleFlipbooks = flipbooks.filter((fb) =>
-    folderFilter === FOLDER_FILTER_ALL
-      ? true
-      : folderFilter === FOLDER_FILTER_NONE
-        ? !fb.folder_id
-        : fb.folder_id === folderFilter
-  )
+  const visibleFlipbooks = flipbooks
   const folderNameById = (id: string | null) => folders.find((f) => f.id === id)?.name ?? ''
-  const selectedFolderName = folders.find((f) => f.id === folderFilter)?.name ?? ''
 
   const totalViews = flipbooks.reduce((s, f) => s + (f.views || 0), 0)
-  const planInfo = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
   return (
     <main className="container section">
       <div className="stats" aria-label="요약">
@@ -266,13 +255,6 @@ export default function DashboardPage() {
           <div className="stat-label">총 조회수</div>
           <div className="stat-value">{totalViews.toLocaleString()}회</div>
         </div>
-        <div className="stat stat-dark">
-          <div className="stat-label">요금제</div>
-          <div className="stat-value">
-            {planInfo.label}
-            {bonus > 0 ? ` + 추천 ${bonus}개` : ''}
-          </div>
-        </div>
       </div>
 
       {(pull > 0 || refreshing) && (
@@ -283,44 +265,8 @@ export default function DashboardPage() {
 
       <section className="panel" aria-labelledby="list-title">
         <div className="panel-head">
-          <h2 className="panel-title" id="list-title">
-            {folderFilter === FOLDER_FILTER_ALL
-              ? `내 플립북 (${flipbooks.length})`
-              : `${folderFilter === FOLDER_FILTER_NONE ? '폴더 없음' : selectedFolderName} (${visibleFlipbooks.length})`}
-          </h2>
+          <h2 className="panel-title" id="list-title">{`내 플립북 (${flipbooks.length})`}</h2>
         </div>
-
-        {folders.length > 0 && (
-          <div className="fb-actions-row" style={{ flexWrap: 'wrap', marginBottom: 12 }} aria-label="폴더 필터">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              aria-pressed={folderFilter === FOLDER_FILTER_ALL}
-              onClick={() => setFolderFilter(FOLDER_FILTER_ALL)}
-            >
-              전체
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              aria-pressed={folderFilter === FOLDER_FILTER_NONE}
-              onClick={() => setFolderFilter(FOLDER_FILTER_NONE)}
-            >
-              폴더 없음
-            </button>
-            {folders.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className="btn btn-ghost"
-                aria-pressed={folderFilter === f.id}
-                onClick={() => setFolderFilter(f.id)}
-              >
-                {f.name}
-              </button>
-            ))}
-          </div>
-        )}
 
         {!loaded ? (
           <ul className="fb-list" aria-label="불러오는 중">
