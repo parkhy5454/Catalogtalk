@@ -1354,3 +1354,102 @@ body {
 .menu-item:active {
   background: #f3f3f3;
 }
+
+/* Home intro: explains the app to first-time users */
+.intro-card {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  padding: 22px 20px 20px;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(120% 90% at 100% 0%, #2a1b44 0%, #120d1c 55%, #0e0a14 100%);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+.intro-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(254, 229, 0, 0.14);
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.intro-title {
+  margin: 12px 0 8px;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: #fff;
+}
+.intro-title em {
+  font-style: normal;
+  color: var(--yellow);
+}
+.intro-sub {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+.intro-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+}
+.intro-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f2f2f2;
+}
+.intro-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #111;
+  font-size: 14px;
+  font-weight: 900;
+}
+.intro-cta {
+  width: 100%;
+  background: var(--yellow);
+  color: #111;
+  font-weight: 800;
+}
+.intro-compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.intro-compact-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--yellow);
+  font-size: 14px;
+  font-weight: 900;
+}

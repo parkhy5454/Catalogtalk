@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { copyText } from '@/lib/clipboard'
@@ -256,6 +257,26 @@ export default function DashboardPage() {
           <div className="stat-value">{totalViews.toLocaleString()}회</div>
         </div>
       </div>
+
+      {/* What the app is, for people who open it for the first time. */}
+      {loaded && flipbooks.length === 0 ? (
+        <section className="intro-card" aria-label="카탈로그톡 소개">
+          <div className="intro-badge">CATALOGTALK</div>
+          <h2 className="intro-title">PDF를 디지털 북으로<br />바꿔주는 <em>플립북</em></h2>
+          <p className="intro-sub">책처럼 넘겨 보는 카탈로그를 만들고, 카톡으로 바로 보내세요.</p>
+          <ol className="intro-steps">
+            <li><span className="intro-num">1</span><span>PDF 또는 Word 파일을 올려요</span></li>
+            <li><span className="intro-num">2</span><span>플립북 링크가 바로 생겨요</span></li>
+            <li><span className="intro-num">3</span><span>카톡·문자로 보내면 고객이 앱 설치 없이 봐요</span></li>
+          </ol>
+          <Link href="/dashboard/new" className="btn intro-cta">첫 플립북 만들기 →</Link>
+        </section>
+      ) : (
+        <div className="intro-compact" aria-label="카탈로그톡 소개">
+          <span className="intro-compact-mark" aria-hidden="true">C</span>
+          <span>PDF를 디지털 북으로 바꿔주는 플립북</span>
+        </div>
+      )}
 
       {(pull > 0 || refreshing) && (
         <div className="ptr" style={{ height: refreshing ? 44 : pull }} role="status">
