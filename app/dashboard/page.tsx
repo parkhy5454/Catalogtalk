@@ -73,6 +73,15 @@ export default function DashboardPage() {
   const [dragOver, setDragOver] = useState(false)
   const [convertingId, setConvertingId] = useState<string | null>(null)
   const [shareOpenId, setShareOpenId] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [pull, setPull] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  // Latest reload function, read by the touch listeners below (they are registered once).
+  const reloadRef = useRef<() => Promise<void>>(async () => {})
+  reloadRef.current = async () => {
+    if (!userId) return
+    await Promise.all([fetchFlipbooks(userId), fetchFolders(userId)])
+  }
   const fileInput = useRef<HTMLInputElement>(null)
 
   const fetchFlipbooks = useCallback(
@@ -101,6 +110,55 @@ export default function DashboardPage() {
     [supabase]
   )
 
+  // Pull to refresh: drag down from the top of the page, release past the threshold.
+  useEffect(() => {
+    const TRIGGER = 64
+    let startY = 0
+    let active = false
+    let last = 0
+    const onStart = (e: TouchEvent) => {
+      active = window.scrollY <= 0
+      startY = e.touches[0].clientY
+      last = 0
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!active) return
+      const d = e.touches[0].clientY - startY
+      if (d <= 0) {
+        active = false
+        setPull(0)
+        return
+      }
+      last = Math.min(d * 0.5, 96)
+      setPull(last)
+    }
+    const onEnd = async () => {
+      if (!active) return
+      active = false
+      if (last < TRIGGER) {
+        setPull(0)
+        return
+      }
+      setPull(0)
+      setRefreshing(true)
+      try {
+        navigator.vibrate?.(10)
+      } catch {
+        // haptics optional
+      }
+      await reloadRef.current()
+      setRefreshing(false)
+    }
+    window.addEventListener('touchstart', onStart, { passive: true })
+    window.addEventListener('touchmove', onMove, { passive: true })
+    window.addEventListener('touchend', onEnd)
+    return () => {
+      window.removeEventListener('touchstart', onStart)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onEnd)
+    }
+  }, [])
+
   useEffect(() => {
     setOrigin(window.location.origin)
     setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function')
@@ -121,6 +179,7 @@ export default function DashboardPage() {
       if (customer?.plan) setPlan(customer.plan)
       setBonus(customer?.bonus_flipbooks ?? 0)
       await Promise.all([fetchFlipbooks(user.id), fetchFolders(user.id)])
+      setLoaded(true)
     })()
     return () => {
       cancelled = true
@@ -233,6 +292,7 @@ export default function DashboardPage() {
     setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, folder_id: nextId } : f)))
   }
 
+  const shareTarget = flipbooks.find((f) => f.id === shareOpenId) ?? null
   const visibleFlipbooks = flipbooks.filter((fb) =>
     folderFilter === FOLDER_FILTER_ALL
       ? true
@@ -269,7 +329,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <section className="panel" aria-labelledby="create-title">
+      {(pull > 0 || refreshing) && (
+        <div className="ptr" style={{ height: refreshing ? 44 : pull }} role="status">
+          {refreshing ? '새로고침 중...' : pull >= 64 ? '놓으면 새로고침' : '당겨서 새로고침'}
+        </div>
+      )}
+
+      <section className="panel" id="create" aria-labelledby="create-title">
         <div className="panel-head">
           <h2 className="panel-title" id="create-title">새 플립북 만들기</h2>
           <span className="pill">PDF · Word → 링크 3초</span>
@@ -404,7 +470,19 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {flipbooks.length === 0 ? (
+        {!loaded ? (
+          <ul className="fb-list" aria-label="불러오는 중">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="fb-item" aria-hidden="true">
+                <div className="skeleton skel-thumb" />
+                <div className="fb-body">
+                  <div className="skeleton skel-line" />
+                  <div className="skeleton skel-line short" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : flipbooks.length === 0 ? (
           <div className="empty">
             <div className="empty-icon" aria-hidden="true">📚</div>
             <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--ink)' }}>아직 만든 플립북이 없어요</div>
@@ -462,24 +540,6 @@ export default function DashboardPage() {
                         <span style={{ width: `${progress}%` }} />
                       </div>
                     )}
-                    {shareOpenId === fb.id && (
-                      <div className="fb-actions-row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
-                        {canNativeShare && (
-                          <button type="button" className="btn btn-primary" onClick={() => handleNativeShare(fb)}>
-                            공유하기
-                          </button>
-                        )}
-                        <a className="btn btn-ghost" href={`sms:?body=${encodeURIComponent(`${text}\n${shareUrl}`)}`}>
-                          문자 보내기
-                        </a>
-                        <a
-                          className="btn btn-ghost"
-                          href={`mailto:?subject=${encodeURIComponent(`[카탈로그톡] ${fb.title}`)}&body=${encodeURIComponent(`${text}\n${shareUrl}`)}`}
-                        >
-                          이메일 보내기
-                        </a>
-                      </div>
-                    )}
                   </div>
                   <div className="fb-actions">
                     {needsConvert ? (
@@ -514,6 +574,43 @@ export default function DashboardPage() {
           </ul>
         )}
       </section>
+
+      {shareTarget && (
+        <>
+          <div className="sheet-backdrop" onClick={() => setShareOpenId(null)} aria-hidden="true" />
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="보내기">
+            <div className="sheet-grip" aria-hidden="true" />
+            <div className="sheet-title">{shareTarget.title}</div>
+            {canNativeShare && (
+              <button type="button" className="sheet-action" onClick={() => handleNativeShare(shareTarget)}>
+                <span className="sheet-icon" aria-hidden="true">📤</span>공유하기
+              </button>
+            )}
+            <a className="sheet-action" href={`sms:?body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}`)}`}>
+              <span className="sheet-icon" aria-hidden="true">💬</span>문자로 보내기
+            </a>
+            <a
+              className="sheet-action"
+              href={`mailto:?subject=${encodeURIComponent(`[카탈로그톡] ${shareTarget.title}`)}&body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}`)}`}
+            >
+              <span className="sheet-icon" aria-hidden="true">✉️</span>이메일로 보내기
+            </a>
+            <button
+              type="button"
+              className="sheet-action"
+              onClick={async () => {
+                await handleCopy(shareTarget.slug)
+                setShareOpenId(null)
+              }}
+            >
+              <span className="sheet-icon" aria-hidden="true">🔗</span>링크 복사
+            </button>
+            <button type="button" className="sheet-action sheet-cancel" onClick={() => setShareOpenId(null)}>
+              닫기
+            </button>
+          </div>
+        </>
+      )}
     </main>
   )
 }

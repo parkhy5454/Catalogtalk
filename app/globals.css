@@ -995,3 +995,325 @@ button {
   color: var(--ink);
   font-weight: 700;
 }
+
+/* ---- App feel: no pull-to-refresh bounce, no text selection on controls, entrance motion ---- */
+html {
+  overscroll-behavior-y: none;
+}
+.dash-shell .btn,
+.tabbar a,
+.sheet-action {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+@keyframes app-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.dash-shell main {
+  animation: app-in 0.28s ease-out;
+}
+
+/* ---- Bottom sheet (share menu) ---- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.4);
+  animation: app-fade 0.2s ease-out;
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.15);
+  animation: sheet-up 0.26s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.sheet-grip {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto 10px;
+  border-radius: 3px;
+  background: #ddd;
+}
+.sheet-title {
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 0 12px;
+  overflow-wrap: anywhere;
+}
+.sheet-action {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+.sheet-action:active {
+  background: #f3f3f3;
+}
+.sheet-action .sheet-icon {
+  width: 28px;
+  margin-right: 12px;
+  text-align: center;
+  font-size: 20px;
+}
+.sheet-cancel {
+  margin-top: 8px;
+  justify-content: center;
+  color: var(--muted);
+}
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes app-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Install banner (home-screen app) ---- */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.install-banner .install-text {
+  flex: 1;
+  min-width: 0;
+}
+.install-banner .btn {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.install-banner .install-close {
+  min-height: 40px;
+  min-width: 40px;
+  border: 0;
+  background: none;
+  color: #bbb;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-shell main,
+  .sheet,
+  .sheet-backdrop {
+    animation: none;
+  }
+}
+
+/* =====================================================================
+   Native-app layer (applies on top of the rules above)
+   ===================================================================== */
+
+/* Status bar: black-translucent means content runs under the status bar.
+   A fixed black strip behind it keeps the icons readable on every page. */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: #000;
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Touch: no 300ms delay, no double-tap zoom on controls, momentum scrolling */
+button,
+a,
+input,
+select,
+textarea,
+label,
+.btn {
+  touch-action: manipulation;
+}
+html,
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Buttons: at least 48px tall, 12px corners, scale-down press feedback */
+.btn {
+  min-height: var(--touch);
+  border-radius: 12px;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+
+/* App header (dark, 56px + status bar) */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) var(--gutter) 0;
+  background: #000;
+  color: #fff;
+}
+.app-header .brand-name {
+  color: #fff;
+}
+.app-header-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: #fff;
+  background: #222;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+/* Bottom tab bar: five slots, centre "+" is the upload button */
+.tabbar {
+  height: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #fff;
+  border-top: 1px solid #e6e6e6;
+}
+.tabbar.is-hidden {
+  display: none;
+}
+.tabbar-inner {
+  height: 64px;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+}
+.tabbar a {
+  min-height: 56px;
+  font-size: 11px;
+}
+.tabbar .tab-icon {
+  font-size: 20px;
+}
+.tabbar-inner .tab-plus-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+}
+.tab-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #111;
+  color: var(--yellow);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+.tab-plus-link:active .tab-plus {
+  transform: scale(0.94);
+}
+
+/* Skeleton loading with shimmer (replaces spinners on lists) */
+.skeleton {
+  background: linear-gradient(90deg, #eeeeee 25%, #f7f7f7 37%, #eeeeee 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 8px;
+}
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+.skel-thumb {
+  width: 72px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 10px;
+}
+.skel-line {
+  height: 14px;
+  margin-bottom: 10px;
+}
+.skel-line.short {
+  width: 55%;
+}
+.fb-list[aria-label='불러오는 중'] .fb-item {
+  pointer-events: none;
+}
+
+/* Pull-to-refresh indicator */
+.ptr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: height 0.15s ease;
+}
+
+/* Page transition: slide in from the right, like a native push */
+@keyframes app-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Viewer: vertical swipe hides the chrome */
+.viewer .viewer-top,
+.viewer .viewer-controls {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.viewer.ui-hidden .viewer-top {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+.viewer.ui-hidden .viewer-controls {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .tab-plus,
+  .btn {
+    animation: none;
+    transition: none;
+  }
+}

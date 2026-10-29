@@ -60,6 +60,8 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [views, setViews] = useState(flipbook.views || 0)
   const [soundOn, setSoundOn] = useState(true)
   const [zoomIdx, setZoomIdx] = useState<number | null>(null)
+  // Vertical swipe toggles the chrome (header and controls), like a video player.
+  const [uiHidden, setUiHidden] = useState(false)
   const counted = useRef(false)
   const track = useRef({ page: 0, since: 0 })
 
@@ -305,6 +307,10 @@ export default function Viewer({ flipbook, pages }: Props) {
     if (!s || !book || zoomIdx !== null) return
     const dx = e.clientX - s.x
     const dy = e.clientY - s.y
+    if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+      setUiHidden((v) => !v)
+      return
+    }
     // Left or right swipe, same rule both ways: a fairly quick, mostly horizontal move.
     if (Math.abs(dx) > 40 && Math.abs(dy) < 80 && Math.abs(dx) > Math.abs(dy) * 1.2) {
       const forward = dx < 0
@@ -335,7 +341,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   const canNext = pageIdx < total - 1
 
   return (
-    <div className="viewer">
+    <div className={`viewer${uiHidden ? ' ui-hidden' : ''}`}>
       <header className="viewer-top">
         <div style={{ minWidth: 0 }}>
           <div className="viewer-title truncate" title={flipbook.title}>{flipbook.title}</div>

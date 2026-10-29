@@ -58,7 +58,17 @@ export function unlockAudio() {
   loadClip(c)
 }
 
+// Short haptic tick on phones that support it (Android Chrome; iOS Safari ignores it).
+function hapticTick() {
+  try {
+    navigator.vibrate?.(10)
+  } catch {
+    // Some in-app browsers throw: haptics are optional.
+  }
+}
+
 export function playPageTurn() {
+  hapticTick()
   const c = getContext()
   if (!c) return
   if (c.state === 'suspended') void c.resume().catch(() => undefined)
