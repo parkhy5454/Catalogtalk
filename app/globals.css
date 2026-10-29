@@ -865,3 +865,37 @@ button {
 .book-host * {
   background-color: transparent;
 }
+
+/* Page navigation inside the zoom view */
+.zoom-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+.zoom-nav:active { background: #fee500; }
+.zoom-nav:disabled { opacity: 0.3; cursor: default; }
+.zoom-nav-prev { left: 8px; }
+.zoom-nav-next { right: 8px; }
+.zoom-count {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+  white-space: nowrap;
+  z-index: 2;
+}

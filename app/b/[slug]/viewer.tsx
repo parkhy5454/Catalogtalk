@@ -55,7 +55,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   const pageIdxRef = useRef(0) // survives book re-creation (e.g. on rotation)
   const [views, setViews] = useState(flipbook.views || 0)
   const [soundOn, setSoundOn] = useState(true)
-  const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  const [zoomIdx, setZoomIdx] = useState<number | null>(null)
   const counted = useRef(false)
   const track = useRef({ page: 0, since: 0 })
 
@@ -228,7 +228,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     const s = swipeStart.current
     swipeStart.current = null
     const book = bookRef.current
-    if (!s || !book || zoomSrc) return
+    if (!s || !book || zoomIdx !== null) return
     const dx = e.clientX - s.x
     const dy = e.clientY - s.y
     if (dx < -50 && Math.abs(dy) < 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
@@ -323,7 +323,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             </button>
             <div className="page-count" aria-live="polite">
               {pageIdx + 1} / {total}쪽
-              <button type="button" className="zoom-open" onClick={() => setZoomSrc(urls[pageIdx])}>
+              <button type="button" className="zoom-open" onClick={() => setZoomIdx(pageIdx)}>
                 🔍 확대
               </button>
             </div>
@@ -351,11 +351,17 @@ export default function Viewer({ flipbook, pages }: Props) {
         </div>
       )}
 
-      {zoomSrc && (
+      {zoomIdx !== null && (
         <ZoomView
-          src={zoomSrc}
-          alt={`${pageIdx + 1}페이지 확대`}
-          onClose={() => setZoomSrc(null)}
+          urls={urls}
+          index={zoomIdx}
+          onIndexChange={setZoomIdx}
+          onClose={() => {
+            // Closing the zoom view moves the book to the page the reader ended on.
+            const target = zoomIdx
+            setZoomIdx(null)
+            if (target !== null && target !== pageIdxRef.current) bookRef.current?.turnToPage(target)
+          }}
         />
       )}
     </div>

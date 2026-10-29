@@ -9,8 +9,19 @@ type Pt = { x: number; y: number }
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
-// Full-screen pinch-zoom for one page. Opened from the viewer's "확대" button.
-export default function ZoomView({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+// Full-screen pinch-zoom viewer for the catalog pages. Opened from the viewer's "확대" button.
+// Pages can be changed here too: ‹ › buttons, a horizontal swipe (when not zoomed), or arrow keys.
+export default function ZoomView({
+  urls,
+  index,
+  onIndexChange,
+  onClose,
+}: {
+  urls: string[]
+  index: number
+  onIndexChange: (i: number) => void
+  onClose: () => void
+}) {
   const stageRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Pt>())
   const g = useRef({ start: { x: 0, y: 0 } as Pt, startPan: { x: 0, y: 0 } as Pt, startZoom: 1, startDist: 0, pinched: false, moved: false, t: 0 })
@@ -18,8 +29,24 @@ export default function ZoomView({ src, alt, onClose }: { src: string; alt: stri
   const [zoom, setZoom] = useState(MIN_ZOOM)
   const [pan, setPan] = useState<Pt>({ x: 0, y: 0 })
 
+  const last = urls.length - 1
+  const go = (delta: number) => {
+    const next = clamp(index + delta, 0, last)
+    if (next !== index) onIndexChange(next)
+  }
+
+  // A new page always starts unzoomed.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    setZoom(MIN_ZOOM)
+    setPan({ x: 0, y: 0 })
+  }, [index])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowRight') onIndexChange(clamp(index + 1, 0, last))
+      if (e.key === 'ArrowLeft') onIndexChange(clamp(index - 1, 0, last))
+    }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -27,7 +54,7 @@ export default function ZoomView({ src, alt, onClose }: { src: string; alt: stri
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [onClose])
+  }, [onClose, onIndexChange, index, last])
 
   const clampPan = (p: Pt, z: number): Pt => {
     const rect = stageRef.current?.getBoundingClientRect()
@@ -86,10 +113,17 @@ export default function ZoomView({ src, alt, onClose }: { src: string; alt: stri
       s.pinched = false
       return
     }
+    // Horizontal swipe at normal zoom turns the page.
+    if (zoom <= 1.05 && s.moved) {
+      const dx = e.clientX - s.start.x
+      const dy = e.clientY - s.start.y
+      if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) go(dx < 0 ? 1 : -1)
+      return
+    }
     if (!s.moved && Date.now() - s.t < 300) {
       const now = Date.now()
-      const last = lastTap.current
-      if (last && now - last.t < 300 && dist(last.p, { x: e.clientX, y: e.clientY }) < 30) {
+      const lt = lastTap.current
+      if (lt && now - lt.t < 300 && dist(lt.p, { x: e.clientX, y: e.clientY }) < 30) {
         lastTap.current = null
         setZoom(zoom > 1 ? MIN_ZOOM : DOUBLE_TAP_ZOOM)
         setPan({ x: 0, y: 0 })
@@ -114,14 +148,33 @@ export default function ZoomView({ src, alt, onClose }: { src: string; alt: stri
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={src}
-          alt={alt}
+          src={urls[index]}
+          alt={`${index + 1}페이지 확대`}
           draggable={false}
           className="zoom-img"
           style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
         />
       </div>
-      <div className="zoom-hint">두 손가락으로 확대 · 두 번 탭 · 닫기로 돌아가기</div>
+      <button
+        type="button"
+        className="zoom-nav zoom-nav-prev"
+        onClick={() => go(-1)}
+        disabled={index <= 0}
+        aria-label="이전 페이지"
+      >
+        ‹
+      </button>
+      <button
+        type="button"
+        className="zoom-nav zoom-nav-next"
+        onClick={() => go(1)}
+        disabled={index >= last}
+        aria-label="다음 페이지"
+      >
+        ›
+      </button>
+      <div className="zoom-count" aria-live="polite">{index + 1} / {urls.length}쪽</div>
+      <div className="zoom-hint">두 손가락으로 확대 · 좌우로 밀어 넘기기 · 닫기로 돌아가기</div>
     </div>
   )
 }
