@@ -112,6 +112,22 @@ export default function Viewer({ flipbook, pages }: Props) {
     host.style.left = '50%'
     host.style.right = 'auto'
     host.style.transform = 'translateX(-50%)'
+    // Resting view: a plain image of the current page (sharp on iOS). The 3D page-turn layers
+    // below it are shown only while a page is actually turning, then this image comes back.
+    const still = document.createElement('img')
+    still.className = 'book-still'
+    still.alt = ''
+    still.draggable = false
+    still.style.width = `${pageW}px`
+    still.style.height = `${Math.round(pageW * ratio)}px`
+    host.appendChild(still)
+    const showStill = (i: number) => {
+      still.src = urls[i] ?? ''
+      still.style.display = 'block'
+    }
+    const hideStill = () => {
+      still.style.display = 'none'
+    }
     area.appendChild(host)
 
     soundRef.current = readSoundPref()
@@ -141,6 +157,9 @@ export default function Viewer({ flipbook, pages }: Props) {
       // (a finished drag or a button press), so the sound plays only for real turns.
       book.on('changeState', (e) => {
         if (e.data === 'flipping' && soundRef.current) playPageTurn()
+        // Back to rest: show the crisp still of the current page; while dragging/turning, hide it.
+        if (e.data === 'read') showStill(book?.getCurrentPageIndex() ?? 0)
+        else hideStill()
       })
       book.on('flip', (e) => {
         const i = Number(e.data)
@@ -148,7 +167,9 @@ export default function Viewer({ flipbook, pages }: Props) {
         setPageIdx(i)
       })
       book.on('init', () => {
-        if (!disposed) setReady(true)
+        if (disposed) return
+        setReady(true)
+        showStill(book?.getCurrentPageIndex() ?? pageIdxRef.current)
       })
       book.loadFromImages(urls)
       bookRef.current = book

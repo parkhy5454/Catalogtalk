@@ -940,3 +940,16 @@ button {
   -webkit-transform-style: flat;
   transform-style: flat;
 }
+
+/* Resting page image shown over the book (see viewer.tsx). Passes touches through to the book. */
+.book-still {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  object-fit: fill;
+  background: #fff;
+  pointer-events: none;
+  z-index: 2;
+  display: none;
+}
