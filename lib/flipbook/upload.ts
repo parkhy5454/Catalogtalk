@@ -32,6 +32,7 @@ export type FlipbookRow = {
   page_count: number
   views: number
   created_at: string
+  is_public: boolean
   folder_id: string | null
 }
 
@@ -151,7 +152,7 @@ export async function createFlipbook(
       page_count: numPages,
       folder_id: opts.folderId ?? null,
     })
-    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id')
+    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public')
     .single()
   if (error) throw error
 

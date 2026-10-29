@@ -317,3 +317,21 @@ drop policy if exists originals_delete_own on storage.objects;
 create policy originals_delete_own on storage.objects for delete to authenticated
   using (bucket_id = 'flipbook-originals' and owner = auth.uid());
 notify pgrst, 'reload schema';
+
+-- 6. Link on/off (v6) ---------------------------------------------------
+-- The owner can switch a catalog's public link off. get_flipbook returns nothing for it,
+-- so the viewer page shows "not found" and the page list (which needs the flipbook id) stays hidden.
+alter table flipbooks add column if not exists is_public boolean not null default true;
+
+create or replace function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at
+  from flipbooks f where f.slug = p_slug and f.is_public limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+notify pgrst, 'reload schema';

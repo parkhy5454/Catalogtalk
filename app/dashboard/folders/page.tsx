@@ -76,7 +76,7 @@ export default function MyBookPage() {
     async (uid: string) => {
       const { data, error } = await supabase
         .from('flipbooks')
-        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id')
+        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public')
         .eq('user_id', uid)
         .order('created_at', { ascending: false })
       if (error) setMessage({ kind: 'error', text: friendlyError(error) })
@@ -197,6 +197,23 @@ export default function MyBookPage() {
       setStatus('')
       setProgress(0)
     }
+  }
+
+  // Switch the public link on/off. While off, the viewer link shows "not found".
+  const toggleShare = async (fb: FlipbookRow) => {
+    const next = !fb.is_public
+    if (!next) {
+      const ok = window.confirm(`"${fb.title}" 링크를 끌까요?\n끄면 받은 사람이 더 이상 볼 수 없어요.`)
+      if (!ok) return
+    }
+    setMessage(null)
+    const { error } = await supabase.from('flipbooks').update({ is_public: next }).eq('id', fb.id)
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, is_public: next } : f)))
+    setMessage({ kind: 'success', text: next ? '링크를 다시 열었어요' : '링크를 껐어요' })
   }
 
   const handleDelete = async (fb: FlipbookRow) => {
@@ -398,7 +415,10 @@ export default function MyBookPage() {
                     <div className="fb-thumb" aria-hidden="true" />
                   )}
                   <div className="fb-body">
-                    <div className="fb-title truncate" title={fb.title}>{fb.title}</div>
+                    <div className="fb-title truncate" title={fb.title}>
+                      {fb.title}
+                      {!fb.is_public && <span className="pill" style={{ marginLeft: 6 }}>링크 꺼짐</span>}
+                    </div>
                     <div className="fb-meta">
                       <span className="truncate" style={{ maxWidth: '100%' }}>/b/{fb.slug}</span>
                       <span className="chip">조회 {fb.views || 0}회</span>
@@ -443,6 +463,9 @@ export default function MyBookPage() {
                       </a>
                     )}
                     <div className="fb-actions-row fb-card-actions">
+                      <button type="button" className="btn btn-ghost" onClick={() => toggleShare(fb)}>
+                        {fb.is_public ? '링크 끄기' : '링크 켜기'}
+                      </button>
                       <button type="button" className="btn btn-ghost" onClick={() => router.push(`/dashboard/stats/${fb.id}`)}>
                         통계
                       </button>
