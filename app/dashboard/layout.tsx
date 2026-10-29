@@ -8,13 +8,14 @@ import InstallBanner from './install-banner'
 
 // App shell for every signed-in page: dark app header on top, five-slot bottom tab bar
 // with the upload button in the centre. Route protection is in middleware.ts.
+// Settings also covers the profile and operator pages, so those tabs stay highlighted.
 const LEFT_TABS = [
-  { href: '/dashboard', label: '홈', icon: '🏠' },
-  { href: '/dashboard/folders', label: '폴더', icon: '📁' },
+  { href: '/dashboard', label: '홈', icon: '🏠', match: ['/dashboard'] },
+  { href: '/dashboard/folders', label: 'My Book', icon: '📚', match: ['/dashboard/folders'] },
 ] as const
 const RIGHT_TABS = [
-  { href: '/dashboard/referral', label: '친구 추천', icon: '🎁' },
-  { href: '/dashboard/profile', label: '내 정보', icon: '👤' },
+  { href: '/dashboard/referral', label: '친구 추천', icon: '🎁', match: ['/dashboard/referral'] },
+  { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin'] },
 ] as const
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +40,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.refresh()
   }
 
-  const isActive = (href: string) => (href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href))
+  const isActive = (tab: { href: string; match: readonly string[] }) =>
+    tab.href === '/dashboard' ? pathname === '/dashboard' : tab.match.some((m) => pathname.startsWith(m))
 
   return (
     <div className="page dash-shell">
@@ -61,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <nav className={`tabbar${keyboardOpen ? ' is-hidden' : ''}`} aria-label="주요 메뉴">
         <div className="tabbar-inner">
           {LEFT_TABS.map((tab) => (
-            <Link key={tab.href} href={tab.href} aria-current={isActive(tab.href) ? 'page' : undefined}>
+            <Link key={tab.href} href={tab.href} aria-current={isActive(tab) ? 'page' : undefined}>
               <span className="tab-icon" aria-hidden="true">{tab.icon}</span>
               <span>{tab.label}</span>
             </Link>
@@ -70,7 +72,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span className="tab-plus" aria-hidden="true">+</span>
           </Link>
           {RIGHT_TABS.map((tab) => (
-            <Link key={tab.href} href={tab.href} aria-current={isActive(tab.href) ? 'page' : undefined}>
+            <Link key={tab.href} href={tab.href} aria-current={isActive(tab) ? 'page' : undefined}>
               <span className="tab-icon" aria-hidden="true">{tab.icon}</span>
               <span>{tab.label}</span>
             </Link>

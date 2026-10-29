@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { scrollIntoViewOnFocus } from '@/lib/ui'
@@ -8,12 +7,9 @@ import { formatPhone } from '@/lib/phone'
 
 type Msg = { ok: boolean; text: string } | null
 
-// Same operator as app/dashboard/admin (server-side gate there). Used only to show the admin link.
-const ADMIN_EMAILS = ['parkhy5454@gmail.com']
 
 export default function ProfilePage() {
   const [email, setEmail] = useState('')
-  const isAdmin = ADMIN_EMAILS.includes(email)
   const [createdAt, setCreatedAt] = useState('')
   const [userId, setUserId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -181,11 +177,6 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {isAdmin && (
-            <div className="btn-row" style={{ marginTop: 20 }}>
-              <Link href="/dashboard/admin" className="btn btn-ghost">관리자 페이지</Link>
-            </div>
-          )}
         </div>
     </main>
   )
