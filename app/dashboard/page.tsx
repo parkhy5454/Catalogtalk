@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-const PLAN_LABELS: Record<string, string> = {
-  free: '무료 플랜 (기본 3개)',
-  starter: 'Starter (기본 20개)',
-  pro: 'Pro (무제한)',
-  team: 'Team (무제한)',
+const PLAN_SHORT: Record<string, string> = {
+  free: '무료',
+  starter: 'Starter',
+  pro: 'Pro',
+  team: 'Team',
 }
 
 // Home: explains what the app is, shows a quick summary, and points to the two main places.
@@ -59,13 +59,10 @@ export default function DashboardPage() {
           <div className="stat-label">총 조회수</div>
           <div className="stat-value">{views.toLocaleString()}회</div>
         </div>
-      </div>
-
-      <div className="stat stat-dark" style={{ marginBottom: 16 }}>
-        <div className="stat-label">요금제</div>
-        <div className="stat-value">
-          {PLAN_LABELS[plan] ?? PLAN_LABELS.free}
-          {bonus > 0 ? ` + 추천 ${bonus}개` : ''}
+        <div className="stat">
+          <div className="stat-label">요금제</div>
+          <div className="stat-value">{PLAN_SHORT[plan] ?? PLAN_SHORT.free}</div>
+          {bonus > 0 && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>추천 +{bonus}</div>}
         </div>
       </div>
 
