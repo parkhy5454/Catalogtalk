@@ -72,14 +72,13 @@ export default async function AdminPage() {
   const dash = (s?: string | null) => (s && s.trim() ? s : '-')
 
   return (
-    <div className="page">
-      <main className="container section">
+    <main className="container section">
         <div className="panel-head" style={{ marginBottom: 16 }}>
           <div>
             <h1 className="panel-title" style={{ fontSize: 22 }}>관리자 대시보드</h1>
             <p className="muted" style={{ fontSize: 14 }}>총 {users.length.toLocaleString()}명의 가입자</p>
           </div>
-          <Link href="/dashboard" className="btn btn-primary">← 대시보드</Link>
+          <Link href="/dashboard/profile" className="btn btn-primary">← 내 정보</Link>
         </div>
 
         {error && <div className="notice notice-error" role="alert" style={{ marginBottom: 16 }}>에러: {error}</div>}
@@ -126,7 +125,6 @@ export default async function AdminPage() {
             </tbody>
           </table>
         </div>
-      </main>
-    </div>
+    </main>
   )
 }

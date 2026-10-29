@@ -7,8 +7,12 @@ import { scrollIntoViewOnFocus } from '@/lib/ui'
 
 type Msg = { ok: boolean; text: string } | null
 
+// Same operator as app/dashboard/admin (server-side gate there). Used only to show the admin link.
+const ADMIN_EMAILS = ['parkhy5454@gmail.com']
+
 export default function ProfilePage() {
   const [email, setEmail] = useState('')
+  const isAdmin = ADMIN_EMAILS.includes(email)
   const [createdAt, setCreatedAt] = useState('')
   const [userId, setUserId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -88,8 +92,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="page">
-      <main className="container section">
+    <main className="container section">
         <div className="panel profile-card">
           <h1 className="panel-title" style={{ marginBottom: 20 }}>내 정보</h1>
 
@@ -177,22 +180,12 @@ export default function ProfilePage() {
             </div>
           )}
 
-          <div className="btn-row" style={{ marginTop: 20 }}>
-            <Link href="/dashboard" className="btn btn-ghost">대시보드</Link>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={async () => {
-                await supabase.auth.signOut()
-                router.replace('/login')
-                router.refresh()
-              }}
-            >
-              로그아웃
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="btn-row" style={{ marginTop: 20 }}>
+              <Link href="/dashboard/admin" className="btn btn-ghost">관리자 페이지</Link>
+            </div>
+          )}
         </div>
-      </main>
-    </div>
+    </main>
   )
 }
