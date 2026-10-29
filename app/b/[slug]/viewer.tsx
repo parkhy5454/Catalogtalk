@@ -88,10 +88,12 @@ export default function Viewer({ flipbook, pages }: Props) {
   }, [ratio, total])
 
   // Page width in CSS px, rounded so tiny resizes do not rebuild the book.
+  // Always one page at a time (phones and tablets alike); the book is kept narrower than
+  // two pages so page-flip never switches to a two-page spread.
   const pageW = (() => {
     if (!box || ratio === null || box.w <= 0 || box.h <= 0) return null
     const byHeight = box.h / ratio
-    const w = box.w >= 700 ? Math.min(box.w / 2, byHeight) : Math.min(box.w, byHeight)
+    const w = Math.min(box.w, byHeight)
     return Math.max(120, Math.floor(w / 8) * 8)
   })()
 
@@ -105,6 +107,11 @@ export default function Viewer({ flipbook, pages }: Props) {
     // page-flip removes its root element on destroy(), so every book gets a fresh node.
     const host = document.createElement('div')
     host.className = 'book-host'
+    // Narrow host = one-page layout. Centered horizontally inside the area.
+    host.style.width = `${pageW}px`
+    host.style.left = '50%'
+    host.style.right = 'auto'
+    host.style.transform = 'translateX(-50%)'
     area.appendChild(host)
 
     soundRef.current = readSoundPref()
@@ -117,7 +124,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         height: Math.round(pageW * ratio),
         size: 'fixed',
         showCover: true, // first page is a cover shown alone, like a printed book
-        usePortrait: true, // one page on phones, two-page spread when wide enough
+        usePortrait: true, // single-page layout; the host width above keeps it from spreading
         startPage: pageIdxRef.current,
         drawShadow: true,
         maxShadowOpacity: 0.5,
