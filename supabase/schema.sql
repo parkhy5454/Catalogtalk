@@ -1927,7 +1927,8 @@ notify pgrst, 'reload schema';
 -- from every member's view, and a daily job removes them and their files for good.
 alter table chat_threads add column if not exists auto_delete_hours int;
 alter table chat_threads drop constraint if exists chat_threads_auto_delete_check;
-alter table chat_threads add constraint chat_threads_auto_delete_check check (auto_delete_hours in (1, 24, 168));
+-- Any period from 1 day to 1 year, in hours.
+alter table chat_threads add constraint chat_threads_auto_delete_check check (auto_delete_hours between 24 and 8760);
 
 drop policy if exists chat_messages_member_select on chat_messages;
 create policy chat_messages_member_select on chat_messages for select to authenticated
@@ -1953,8 +1954,8 @@ begin
   if auth.uid() is null or not is_thread_member(p_thread, auth.uid()) then
     raise exception '대화를 찾을 수 없어요';
   end if;
-  if p_hours is not null and p_hours not in (1, 24, 168) then
-    raise exception '자동 삭제 시간이 올바르지 않아요';
+  if p_hours is not null and (p_hours < 24 or p_hours > 8760) then
+    raise exception '자동 삭제는 1일에서 1년 사이로 정해 주세요';
   end if;
   update chat_threads set auto_delete_hours = p_hours where id = p_thread;
 end;

@@ -44,6 +44,20 @@ function dayKey(iso: string) {
   return new Date(iso).toDateString()
 }
 
+// Auto-delete periods are stored in hours (24 = 1 day, up to 8760 = 1 year).
+function periodLabel(hours: number | null) {
+  if (hours === null) return '끔'
+  if (hours % 8760 === 0) return `${hours / 8760}년`
+  if (hours % 720 === 0) return `${hours / 720}개월`
+  if (hours % 168 === 0) return `${hours / 168}주`
+  return `${hours / 24}일`
+}
+
+function toHours(amount: number, unit: 'day' | 'week' | 'month' | 'year') {
+  const per = { day: 24, week: 168, month: 720, year: 8760 }[unit]
+  return amount * per
+}
+
 function sizeLabel(bytes: number | null) {
   if (!bytes) return ''
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`
@@ -80,6 +94,8 @@ export default function ChatThreadPage() {
   const mutedRef = useRef<Set<string>>(new Set())
   const [autoDelete, setAutoDelete] = useState<number | null>(null)
   const [timerOpen, setTimerOpen] = useState(false)
+  const [customAmount, setCustomAmount] = useState('1')
+  const [customUnit, setCustomUnit] = useState<'day' | 'week' | 'month' | 'year'>('month')
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -465,7 +481,7 @@ export default function ChatThreadPage() {
                 <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void openInvite() }}>친구 초대</button>
               )}
               <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); setTimerOpen((v) => !v) }}>
-                자동 삭제: {autoDelete === null ? '끔' : autoDelete === 1 ? '1시간' : autoDelete === 24 ? '1일' : '1주'}
+                자동 삭제: {periodLabel(autoDelete)}
               </button>
               {isGroup && (
                 <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); setMutePanelOpen((v) => !v) }}>숨긴 멤버 관리 ({muted.length})</button>
@@ -524,7 +540,7 @@ export default function ChatThreadPage() {
             정해진 시간이 지난 메시지는 모두에게서 사라지고, 하루에 한 번 완전히 지워져요.
           </p>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {([[null, '끔'], [1, '1시간'], [24, '1일'], [168, '1주']] as const).map(([h, label]) => (
+            {([[null, '끔'], [24, '1일'], [168, '1주'], [720, '1개월'], [8760, '1년']] as const).map(([h, label]) => (
               <button
                 key={label}
                 type="button"
@@ -534,6 +550,44 @@ export default function ChatThreadPage() {
                 {label}
               </button>
             ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>직접 정하기 (1일~1년)</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+            <input
+              className="input"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={customAmount}
+              onChange={(e) => setCustomAmount(e.target.value)}
+              style={{ width: 80 }}
+            />
+            <select
+              className="input"
+              value={customUnit}
+              onChange={(e) => setCustomUnit(e.target.value as 'day' | 'week' | 'month' | 'year')}
+              style={{ width: 90 }}
+            >
+              <option value="day">일</option>
+              <option value="week">주</option>
+              <option value="month">개월</option>
+              <option value="year">년</option>
+            </select>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                const amount = Math.floor(Number(customAmount))
+                const hours = Number.isFinite(amount) && amount > 0 ? toHours(amount, customUnit) : NaN
+                if (!(hours >= 24 && hours <= 8760)) {
+                  setError('자동 삭제는 1일에서 1년 사이로 정해 주세요')
+                  return
+                }
+                void chooseAutoDelete(hours)
+              }}
+            >
+              적용
+            </button>
           </div>
         </div>
       )}
