@@ -111,12 +111,9 @@ export default function SettingsPage() {
           )}
         </nav>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          <Link href="/dashboard/referral" className="btn btn-primary" style={{ flex: 1 }}>🎁 친구 추천</Link>
-          <button type="button" className="btn btn-danger" style={{ flex: 1 }} onClick={handleLogout}>
-            로그아웃
-          </button>
-        </div>
+        <button type="button" className="btn btn-danger btn-block" style={{ marginTop: 20 }} onClick={handleLogout}>
+          로그아웃
+        </button>
 
         <div style={{ marginTop: 28, borderTop: '1px solid var(--line, #eee)', paddingTop: 16 }}>
           {!withdrawOpen ? (

@@ -50,9 +50,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="brand-mark" aria-hidden="true">C</span>
           <span className="brand-name" style={{ color: '#fff' }}>{SITE_NAME}</span>
         </Link>
-        <button type="button" onClick={handleLogout} className="btn app-header-btn">
-          로그아웃
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link href="/dashboard/referral" className="btn app-header-btn">🎁 친구 추천</Link>
+          <button type="button" onClick={handleLogout} className="btn app-header-btn">
+            로그아웃
+          </button>
+        </div>
       </header>
 
       <div className="container" style={{ paddingTop: 12 }}>
