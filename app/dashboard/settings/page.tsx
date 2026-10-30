@@ -103,10 +103,6 @@ export default function SettingsPage() {
             <span>{readReceipts ? '👀 읽음 표시: 켜짐' : '👀 읽음 표시: 꺼짐'}</span>
             <span aria-hidden="true">›</span>
           </button>
-          <Link className="menu-item" href="/dashboard/referral">
-            <span>🎁 친구 추천</span>
-            <span aria-hidden="true">›</span>
-          </Link>
           {isAdmin && (
             <Link className="menu-item" href="/dashboard/admin">
               <span>🛠 관리자 보드</span>
@@ -115,9 +111,12 @@ export default function SettingsPage() {
           )}
         </nav>
 
-        <button type="button" className="btn btn-danger btn-block" style={{ marginTop: 20 }} onClick={handleLogout}>
-          로그아웃
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <Link href="/dashboard/referral" className="btn btn-primary" style={{ flex: 1 }}>🎁 친구 추천</Link>
+          <button type="button" className="btn btn-danger" style={{ flex: 1 }} onClick={handleLogout}>
+            로그아웃
+          </button>
+        </div>
 
         <div style={{ marginTop: 28, borderTop: '1px solid var(--line, #eee)', paddingTop: 16 }}>
           {!withdrawOpen ? (
