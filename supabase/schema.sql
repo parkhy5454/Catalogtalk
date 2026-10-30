@@ -2639,3 +2639,68 @@ create trigger quote_requests_webhook after insert on quote_requests
   for each row execute function queue_quote_webhooks();
 
 notify pgrst, 'reload schema';
+
+-- 35. AI translation of catalog pages (v35) ------------------------------
+
+create table if not exists flipbook_translations (
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  lang text not null check (lang in ('en', 'zh', 'ja', 'vi')),
+  page_no int not null check (page_no >= 1),
+  page_text text not null check (char_length(page_text) <= 8000),
+  created_at timestamptz not null default now(),
+  primary key (flipbook_id, lang, page_no)
+);
+
+-- One row per translated page, used to count the free allowance per account.
+create table if not exists translation_usage (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  flipbook_id uuid references flipbooks(id) on delete set null,
+  lang text not null,
+  page_no int not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists translation_usage_user_idx on translation_usage (user_id);
+
+alter table flipbook_translations enable row level security;
+alter table translation_usage enable row level security;
+
+-- Owners and their teams can read and delete a catalog's translations.
+-- Writes happen only on the server (service role), so there are no insert policies.
+drop policy if exists translations_manage_select on flipbook_translations;
+create policy translations_manage_select on flipbook_translations for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+drop policy if exists translations_manage_delete on flipbook_translations;
+create policy translations_manage_delete on flipbook_translations for delete to authenticated
+  using (can_manage_flipbook(flipbook_id));
+
+drop policy if exists translation_usage_owner_select on translation_usage;
+create policy translation_usage_owner_select on translation_usage for select to authenticated
+  using (user_id = auth.uid());
+
+-- Viewers: languages that exist for a public catalog, and its translated pages.
+create or replace function get_translation_langs(p_slug text)
+returns text[]
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(array_agg(distinct t.lang order by t.lang), '{}')
+  from flipbook_translations t
+  join flipbooks f on f.id = t.flipbook_id
+  where f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now());
+$$;
+
+create or replace function get_translations(p_slug text, p_lang text)
+returns table (page_no int, page_text text)
+language sql stable security definer set search_path = public
+as $$
+  select t.page_no, t.page_text
+  from flipbook_translations t
+  join flipbooks f on f.id = t.flipbook_id
+  where f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now())
+    and t.lang = p_lang
+  order by t.page_no;
+$$;
+
+grant execute on function get_translation_langs(text), get_translations(text, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';

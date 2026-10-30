@@ -7,6 +7,7 @@ import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
 import LeadSheet, { leadDone } from './lead-sheet'
 import QuoteSheet from './quote-sheet'
+import TranslationSheet from './translation-sheet'
 
 // One id per page load (one visit). Lets the owner group rows into visits.
 let cachedVisitId: string | null = null
@@ -127,6 +128,14 @@ export default function Viewer({ flipbook, pages }: Props) {
   }, [pageIdx, flipbook.lead_form, flipbook.id])
   // Quote request: opened from the top bar when the publisher turned it on.
   const [quoteOpen, setQuoteOpen] = useState(false)
+  // AI translations: languages the publisher created, loaded once per visit.
+  const [transLangs, setTransLangs] = useState<string[]>([])
+  const [transOpen, setTransOpen] = useState(false)
+  useEffect(() => {
+    createClient()
+      .rpc('get_translation_langs', { p_slug: flipbook.slug })
+      .then(({ data }) => setTransLangs(Array.isArray(data) ? (data as string[]) : []))
+  }, [flipbook.slug])
   const dismissNotice = () => {
     try {
       localStorage.setItem(NOTICE_KEY, '1')
@@ -430,6 +439,11 @@ export default function Viewer({ flipbook, pages }: Props) {
               ← 목록
             </a>
           )}
+          {transLangs.length > 0 && (
+            <button type="button" className="btn btn-dark viewer-pill" onClick={() => setTransOpen(true)}>
+              번역
+            </button>
+          )}
           {flipbook.quote_form && (
             <button type="button" className="btn btn-dark viewer-pill" onClick={() => setQuoteOpen(true)}>
               견적 요청
@@ -466,6 +480,9 @@ export default function Viewer({ flipbook, pages }: Props) {
           ))}
         </div>
       </header>
+      {transOpen && (
+        <TranslationSheet slug={flipbook.slug} langs={transLangs} onClose={() => setTransOpen(false)} />
+      )}
       {quoteOpen && (
         <QuoteSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setQuoteOpen(false)} />
       )}
