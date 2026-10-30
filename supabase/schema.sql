@@ -2807,3 +2807,549 @@ revoke all on function get_lead_priorities(uuid) from public, anon;
 grant execute on function get_lead_priorities(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 38. Buyer directory and deal ledger (v38) ----------------------------------
+
+-- ── Directory: owners choose to list a public catalog ─────────────
+alter table flipbooks add column if not exists listed boolean not null default false;
+alter table flipbooks add column if not exists category text;
+alter table flipbooks add column if not exists summary text;
+
+alter table flipbooks drop constraint if exists flipbooks_category_check;
+alter table flipbooks add constraint flipbooks_category_check
+  check (category is null or category in ('산업용품', '식품', '패션', '전자', '생활', '기타'));
+alter table flipbooks drop constraint if exists flipbooks_summary_check;
+alter table flipbooks add constraint flipbooks_summary_check
+  check (summary is null or char_length(summary) <= 200);
+
+-- Listed, public, not expired catalogs. Anyone may read this list (no private fields).
+create or replace function list_directory(p_category text default null, p_query text default null)
+returns table (
+  id uuid, title text, slug text, thumb_url text, summary text, category text,
+  page_count int, quote_form boolean, created_at timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.thumb_url, f.summary, f.category,
+         f.page_count, f.quote_form, f.created_at
+  from flipbooks f
+  where f.listed and f.is_public and (f.expires_at is null or f.expires_at > now())
+    and (p_category is null or p_category = '' or f.category = p_category)
+    and (p_query is null or p_query = ''
+         or f.title ilike '%' || p_query || '%'
+         or coalesce(f.summary, '') ilike '%' || p_query || '%')
+  order by f.created_at desc
+  limit 60;
+$$;
+grant execute on function list_directory(text, text) to anon, authenticated;
+
+-- ── Deal ledger: a quote that was won, with the amount and the fee at the current rate ──
+create table if not exists deals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  quote_id uuid references quote_requests(id) on delete set null,
+  flipbook_id uuid references flipbooks(id) on delete set null,
+  buyer_name text not null check (char_length(buyer_name) between 1 and 40),
+  buyer_company text check (buyer_company is null or char_length(buyer_company) <= 60),
+  amount bigint not null check (amount >= 0),
+  fee_rate numeric(5, 4) not null check (fee_rate >= 0 and fee_rate <= 1),
+  fee_amount bigint not null check (fee_amount >= 0),
+  memo text check (memo is null or char_length(memo) <= 500),
+  closed_on date not null default current_date,
+  created_at timestamptz not null default now()
+);
+create index if not exists deals_user_idx on deals (user_id, closed_on);
+
+alter table deals enable row level security;
+drop policy if exists deals_owner_all on deals;
+create policy deals_owner_all on deals for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+notify pgrst, 'reload schema';
+
+-- 39. Webhook log retention and standard contracts (v39) ----------------------
+
+-- Webhook deliveries carry lead contacts, so their log is kept 30 days only.
+create or replace function purge_old_webhook_deliveries()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from webhook_deliveries where created_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end $$;
+revoke all on function purge_old_webhook_deliveries() from public, anon, authenticated;
+
+-- Contract records: a standard terms document made from an accepted quote.
+-- The buyer opens it by a private link and confirms ("동의"). This is a click-agreement record,
+-- not a certified electronic signature.
+create table if not exists contracts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  quote_id uuid references quote_requests(id) on delete set null,
+  token text not null unique default replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),
+  title text not null check (char_length(title) between 1 and 100),
+  buyer_name text not null check (char_length(buyer_name) between 1 and 40),
+  buyer_company text check (buyer_company is null or char_length(buyer_company) <= 60),
+  body text not null check (char_length(body) <= 8000),
+  amount bigint not null check (amount >= 0),
+  status text not null default 'sent' check (status in ('sent', 'agreed')),
+  agreed_at timestamptz,
+  expires_at timestamptz not null default now() + interval '30 days',
+  created_at timestamptz not null default now()
+);
+create index if not exists contracts_user_idx on contracts (user_id, created_at);
+
+alter table contracts enable row level security;
+drop policy if exists contracts_owner_all on contracts;
+create policy contracts_owner_all on contracts for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- The buyer reads one contract by its private token only.
+create or replace function get_contract(p_token text)
+returns table (
+  title text, buyer_name text, buyer_company text, body text, amount bigint,
+  status text, agreed_at timestamptz, expires_at timestamptz, seller_company text
+)
+language sql stable security definer set search_path = public
+as $$
+  select c.title, c.buyer_name, c.buyer_company, c.body, c.amount,
+         c.status, c.agreed_at, c.expires_at, cu.company_name
+  from contracts c
+  left join customers cu on cu.user_id = c.user_id
+  where c.token = p_token
+  limit 1;
+$$;
+
+-- Records the buyer's confirmation once, while the link is still valid.
+create or replace function agree_contract(p_token text)
+returns timestamptz
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_at timestamptz;
+begin
+  update contracts set status = 'agreed', agreed_at = now()
+    where token = p_token and status = 'sent' and expires_at > now()
+    returning agreed_at into v_at;
+  if v_at is null then
+    raise exception '이미 처리됐거나 만료된 계약이에요';
+  end if;
+  return v_at;
+end $$;
+
+grant execute on function get_contract(text), agree_contract(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
+
+-- 40. Products, order requests, reorder reminders (v40) ------------------------
+
+alter table flipbooks add column if not exists order_form boolean not null default false;
+alter table flipbooks add column if not exists reorder_days int;
+alter table flipbooks drop constraint if exists flipbooks_reorder_days_check;
+alter table flipbooks add constraint flipbooks_reorder_days_check
+  check (reorder_days is null or reorder_days in (30, 60, 90, 180));
+
+-- Products of a catalog (entered by hand or read from the pages by AI).
+create table if not exists catalog_products (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  price bigint check (price is null or price >= 0),
+  unit text check (unit is null or char_length(unit) <= 20),
+  options text check (options is null or char_length(options) <= 300),
+  description text check (description is null or char_length(description) <= 500),
+  page_no int check (page_no is null or page_no >= 1),
+  created_at timestamptz not null default now()
+);
+create index if not exists catalog_products_fb_idx on catalog_products (flipbook_id);
+alter table catalog_products enable row level security;
+drop policy if exists catalog_products_manage on catalog_products;
+create policy catalog_products_manage on catalog_products for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+-- Viewers read products of a public catalog through this function.
+create or replace function get_products(p_slug text)
+returns table (id uuid, name text, price bigint, unit text, options text, description text, page_no int)
+language sql stable security definer set search_path = public
+as $$
+  select p.id, p.name, p.price, p.unit, p.options, p.description, p.page_no
+  from catalog_products p
+  join flipbooks f on f.id = p.flipbook_id
+  where f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now())
+  order by p.page_no nulls last, p.created_at;
+$$;
+
+-- Order requests: the buyer's selection with a price snapshot. Nothing is charged here.
+create table if not exists orders (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  buyer_name text not null check (char_length(buyer_name) between 1 and 40),
+  buyer_contact text not null check (char_length(buyer_contact) between 5 and 120),
+  buyer_company text check (buyer_company is null or char_length(buyer_company) <= 60),
+  memo text check (memo is null or char_length(memo) <= 500),
+  items jsonb not null,
+  total bigint check (total is null or total >= 0),
+  status text not null default 'new' check (status in ('new', 'done')),
+  marketing_consent boolean not null default false,
+  session_id text,
+  created_at timestamptz not null default now()
+);
+create index if not exists orders_fb_idx on orders (flipbook_id, created_at);
+create index if not exists orders_contact_idx on orders (flipbook_id, buyer_contact);
+alter table orders enable row level security;
+drop policy if exists orders_manage_select on orders;
+create policy orders_manage_select on orders for select to authenticated using (can_manage_flipbook(flipbook_id));
+drop policy if exists orders_manage_update on orders;
+create policy orders_manage_update on orders for update to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+drop policy if exists orders_manage_delete on orders;
+create policy orders_manage_delete on orders for delete to authenticated using (can_manage_flipbook(flipbook_id));
+
+-- p_items: [{"product_id": "...", "qty": 2}, ...]. Names and prices are read from the catalog here.
+create or replace function submit_order(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text,
+  p_items jsonb, p_marketing boolean, p_session text
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := nullif(btrim(coalesce(p_memo, '')), '');
+  v_snapshot jsonb;
+  v_total bigint;
+  v_priced_all boolean;
+  v_count int;
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.order_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 주문을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) not between 1 and 50 then
+    raise exception '상품을 골라 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if exists (select 1 from orders where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from orders where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+
+  -- Snapshot the chosen products at their current names and prices.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_id', p.id, 'name', p.name, 'price', p.price, 'unit', p.unit,
+           'options', p.options, 'qty', least(greatest((i->>'qty')::int, 1), 999)
+         )), '[]'::jsonb),
+         coalesce(sum(p.price * least(greatest((i->>'qty')::int, 1), 999)), 0),
+         bool_and(p.price is not null)
+    into v_snapshot, v_total, v_priced_all
+  from jsonb_array_elements(p_items) as i
+  join catalog_products p on p.id = (i->>'product_id')::uuid and p.flipbook_id = p_flipbook;
+
+  select jsonb_array_length(coalesce(v_snapshot, '[]'::jsonb)) into v_count;
+  if v_count = 0 then raise exception '고른 상품을 찾을 수 없어요'; end if;
+
+  insert into orders (flipbook_id, owner_id, buyer_name, buyer_contact, buyer_company, memo,
+                      items, total, marketing_consent, session_id)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, v_snapshot,
+          case when coalesce(v_priced_all, false) then v_total else null end,
+          coalesce(p_marketing, false), p_session);
+
+  -- Marketing consent is also kept as a lead, so the owner's notices and reorder reminders can reach them.
+  if coalesce(p_marketing, false) then
+    if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and contact = v_contact) then
+      update flipbook_leads set marketing_consent = true
+        where flipbook_id = p_flipbook and contact = v_contact;
+    else
+      insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+      values (p_flipbook, v_owner, v_name, v_contact, true, p_session);
+    end if;
+  end if;
+end $$;
+
+revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) from public;
+grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) to anon, authenticated;
+
+-- Reorder reminders: one per order, so a buyer gets at most one reminder per order.
+create table if not exists reorder_reminders (
+  order_id uuid primary key references orders(id) on delete cascade,
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  sent_at timestamptz not null default now()
+);
+alter table reorder_reminders enable row level security;
+
+-- Order events for the CRM webhook (same delivery path as leads and quotes).
+create or replace function queue_order_webhooks()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into webhook_deliveries (endpoint_id, user_id, event, payload)
+  select e.id, e.user_id, 'order.requested',
+         jsonb_build_object(
+           'event', 'order.requested',
+           'created_at', new.created_at,
+           'flipbook', jsonb_build_object('id', f.id, 'title', f.title),
+           'order', jsonb_build_object('name', new.buyer_name, 'contact', new.buyer_contact,
+                                       'company', new.buyer_company, 'memo', new.memo,
+                                       'items', new.items, 'total', new.total))
+  from webhook_endpoints e
+  join flipbooks f on f.id = new.flipbook_id
+  where e.user_id = new.owner_id and e.enabled;
+  return new;
+end $$;
+drop trigger if exists orders_webhook on orders;
+create trigger orders_webhook after insert on orders
+  for each row execute function queue_order_webhooks();
+
+-- Retention: orders follow the same 1-year rule as leads.
+create or replace function purge_old_leads()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from flipbook_leads where created_at < now() - interval '365 days';
+  get diagnostics v_deleted = row_count;
+  delete from quote_requests where created_at < now() - interval '365 days';
+  delete from orders where created_at < now() - interval '365 days';
+  return v_deleted;
+end $$;
+
+-- get_flipbook also reports order_form now.
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean,
+  lead_form boolean, quote_form boolean, order_form boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null, f.lead_form, f.quote_form, f.order_form
+  from flipbooks f
+  where f.slug = p_slug and f.is_public
+    and (f.expires_at is null or f.expires_at > now())
+  limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 41. Buyer subscriptions (order gate)
+--   Viewing stays free. When a publisher turns on order_requires_subscription,
+--   only buyers with an active subscription can send order requests, and
+--   reorder reminders go only to them. Payment is not connected yet: rows are
+--   added by an admin (service role) until Toss Payments is approved.
+-- ============================================================
+alter table flipbooks add column if not exists order_requires_subscription boolean not null default false;
+
+create table if not exists buyer_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  contact text not null,
+  status text not null default 'active' check (status in ('active', 'canceled')),
+  current_period_end timestamptz not null,
+  payment_ref text,
+  created_at timestamptz not null default now(),
+  unique (flipbook_id, contact)
+);
+alter table buyer_subscriptions enable row level security;
+-- No policies: only the service role (server code and admin SQL) reads or writes this table.
+
+create or replace function buyer_has_subscription(p_flipbook uuid, p_contact text) returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from buyer_subscriptions s
+    where s.flipbook_id = p_flipbook
+      and s.contact = lower(btrim(p_contact))
+      and s.status = 'active'
+      and s.current_period_end > now()
+  );
+$$;
+revoke all on function buyer_has_subscription(uuid, text) from public;
+
+create or replace function submit_order(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text,
+  p_items jsonb, p_marketing boolean, p_session text
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := nullif(btrim(coalesce(p_memo, '')), '');
+  v_snapshot jsonb;
+  v_total bigint;
+  v_priced_all boolean;
+  v_count int;
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.order_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 주문을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) not between 1 and 50 then
+    raise exception '상품을 골라 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if exists (select 1 from flipbooks f where f.id = p_flipbook and f.order_requires_subscription)
+     and not buyer_has_subscription(p_flipbook, v_contact) then
+    raise exception '이 자료의 주문은 구독자만 보낼 수 있어요';
+  end if;
+
+  if exists (select 1 from orders where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from orders where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+
+  -- Snapshot the chosen products at their current names and prices.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_id', p.id, 'name', p.name, 'price', p.price, 'unit', p.unit,
+           'options', p.options, 'qty', least(greatest((i->>'qty')::int, 1), 999)
+         )), '[]'::jsonb),
+         coalesce(sum(p.price * least(greatest((i->>'qty')::int, 1), 999)), 0),
+         bool_and(p.price is not null)
+    into v_snapshot, v_total, v_priced_all
+  from jsonb_array_elements(p_items) as i
+  join catalog_products p on p.id = (i->>'product_id')::uuid and p.flipbook_id = p_flipbook;
+
+  select jsonb_array_length(coalesce(v_snapshot, '[]'::jsonb)) into v_count;
+  if v_count = 0 then raise exception '고른 상품을 찾을 수 없어요'; end if;
+
+  insert into orders (flipbook_id, owner_id, buyer_name, buyer_contact, buyer_company, memo,
+                      items, total, marketing_consent, session_id)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, v_snapshot,
+          case when coalesce(v_priced_all, false) then v_total else null end,
+          coalesce(p_marketing, false), p_session);
+
+  -- Marketing consent is also kept as a lead, so the owner's notices and reorder reminders can reach them.
+  if coalesce(p_marketing, false) then
+    if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and contact = v_contact) then
+      update flipbook_leads set marketing_consent = true
+        where flipbook_id = p_flipbook and contact = v_contact;
+    else
+      insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+      values (p_flipbook, v_owner, v_name, v_contact, true, p_session);
+    end if;
+  end if;
+end $$;
+
+revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) from public;
+grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) to anon, authenticated;
+
+-- ============================================================
+-- 42. Order details: option, delivery date, owner alert, fee estimate
+--   The platform fee is only recorded as an estimate (3%, placeholder rate).
+--   It is not charged yet.
+-- ============================================================
+alter table orders add column if not exists delivery_date date;
+alter table orders add column if not exists platform_fee bigint;
+alter table orders add column if not exists owner_notified_at timestamptz;
+
+drop function if exists submit_order(uuid, text, text, text, text, jsonb, boolean, text);
+
+create or replace function submit_order(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text,
+  p_items jsonb, p_marketing boolean, p_session text, p_delivery date
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := nullif(btrim(coalesce(p_memo, '')), '');
+  v_snapshot jsonb;
+  v_total bigint;
+  v_priced_all boolean;
+  v_count int;
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.order_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 주문을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if exists (select 1 from flipbooks f where f.id = p_flipbook and f.order_requires_subscription)
+     and not buyer_has_subscription(p_flipbook, v_contact) then
+    raise exception '이 자료의 주문은 구독자만 보낼 수 있어요';
+  end if;
+  if p_delivery is not null and (p_delivery < current_date or p_delivery > current_date + 365) then
+    raise exception '납기일은 오늘부터 1년 안에서 골라 주세요';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) not between 1 and 50 then
+    raise exception '상품을 골라 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if exists (select 1 from orders where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from orders where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+
+  -- Snapshot the chosen products at their current names and prices, with the chosen option.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_id', p.id, 'name', p.name, 'price', p.price, 'unit', p.unit,
+           'options', p.options, 'option', nullif(left(btrim(coalesce(i->>'option', '')), 60), ''),
+           'qty', least(greatest((i->>'qty')::int, 1), 999)
+         )), '[]'::jsonb),
+         coalesce(sum(p.price * least(greatest((i->>'qty')::int, 1), 999)), 0),
+         bool_and(p.price is not null)
+    into v_snapshot, v_total, v_priced_all
+  from jsonb_array_elements(p_items) as i
+  join catalog_products p on p.id = (i->>'product_id')::uuid and p.flipbook_id = p_flipbook;
+
+  select jsonb_array_length(coalesce(v_snapshot, '[]'::jsonb)) into v_count;
+  if v_count = 0 then raise exception '고른 상품을 찾을 수 없어요'; end if;
+
+  insert into orders (flipbook_id, owner_id, buyer_name, buyer_contact, buyer_company, memo,
+                      items, total, marketing_consent, session_id, delivery_date, platform_fee)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, v_snapshot,
+          case when coalesce(v_priced_all, false) then v_total else null end,
+          coalesce(p_marketing, false), p_session, p_delivery,
+          case when coalesce(v_priced_all, false) then round(v_total * 0.03)::bigint else null end);
+
+  if coalesce(p_marketing, false) then
+    if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and contact = v_contact) then
+      update flipbook_leads set marketing_consent = true
+        where flipbook_id = p_flipbook and contact = v_contact;
+    else
+      insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+      values (p_flipbook, v_owner, v_name, v_contact, true, p_session);
+    end if;
+  end if;
+end $$;
+
+revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) from public;
+grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) to anon, authenticated;

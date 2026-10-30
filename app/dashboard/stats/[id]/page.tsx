@@ -311,6 +311,16 @@ export default function FlipbookStatsPage() {
         </div>
       </section>
 
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="directory-card-title">
+        <h2 className="panel-title" id="directory-card-title" style={{ fontSize: 16 }}>바이어 디렉터리</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          공개 디렉터리에 올려 새 바이어가 찾을 수 있게 해요. 견적 요청을 함께 켜 두면 좋아요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/directory/${id}`} className="btn btn-ghost">디렉터리 설정</Link>
+        </div>
+      </section>
+
       <section className="panel" style={{ marginTop: 16 }} aria-labelledby="priority-card-title">
         <h2 className="panel-title" id="priority-card-title" style={{ fontSize: 16 }}>영업 우선순위</h2>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
@@ -353,6 +363,17 @@ export default function FlipbookStatsPage() {
           <Link href={`/dashboard/quotes/${id}`} className="btn btn-ghost">
             받은 요청 {quoteCount.toLocaleString()}건 보기
           </Link>
+        </div>
+      </section>
+
+      <section className="panel" aria-labelledby="order-card-title" style={{ marginTop: 16 }}>
+        <h2 className="panel-title" id="order-card-title" style={{ fontSize: 16 }}>상품 · 주문</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          상품을 등록하면 열람 중 장바구니로 주문 요청을 받을 수 있어요. 결제는 아직 없어요.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          <Link href={`/dashboard/products/${id}`} className="btn btn-ghost">상품 관리</Link>
+          <Link href={`/dashboard/orders/${id}`} className="btn btn-ghost">주문 요청 보기</Link>
         </div>
       </section>
 

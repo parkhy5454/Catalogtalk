@@ -11,6 +11,7 @@ export type FlipbookPublic = {
   has_password?: boolean
   lead_form?: boolean
   quote_form?: boolean
+  order_form?: boolean
 }
 
 export type PageImage = {

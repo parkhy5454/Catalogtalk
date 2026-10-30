@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { CONTRACT_FEATURE_ON } from '@/lib/contracts/flags'
 
 // Settings tab: account and operator entries, plus sign-out.
 export default function SettingsPage() {
@@ -78,6 +79,16 @@ export default function SettingsPage() {
           </Link>
           <Link className="menu-item" href="/dashboard/team">
             <span>👥 팀</span>
+            <span aria-hidden="true">›</span>
+          </Link>
+          {CONTRACT_FEATURE_ON && (
+            <Link className="menu-item" href="/dashboard/contracts">
+              <span>📝 계약서</span>
+              <span aria-hidden="true">›</span>
+            </Link>
+          )}
+          <Link className="menu-item" href="/dashboard/deals">
+            <span>💼 거래 기록</span>
             <span aria-hidden="true">›</span>
           </Link>
           <Link className="menu-item" href="/dashboard/integrations">
