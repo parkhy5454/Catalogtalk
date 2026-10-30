@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Turbopack (default in Next 16): same canvas stub as the webpack setting below.
+  turbopack: {
+    resolveAlias: { canvas: './lib/stubs/empty-canvas.js' },
+  },
   // pdf.js has an optional Node-only dependency (`canvas`) that the browser build never uses.
   // Stub it so the client bundle compiles.
   webpack: (config) => {

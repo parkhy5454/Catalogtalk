@@ -14,8 +14,8 @@ function decodeSlug(raw: string) {
   }
 }
 
-export async function POST(req: Request, { params }: { params: { slug: string } }) {
-  const slug = decodeSlug(params.slug)
+export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const slug = decodeSlug((await params).slug)
   const body = await req.json().catch(() => null)
   const password = typeof body?.password === 'string' ? body.password : ''
   if (!password || password.length > 100) {

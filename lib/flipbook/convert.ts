@@ -1,9 +1,9 @@
 // Client-side PDF -> WebP page images using pdf.js.
 // Runs in the browser of the uploader (desktop or mobile); the viewer never runs pdf.js.
-import * as pdfjsLib from 'pdfjs-dist/build/pdf'
+import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs'
 
-const PDFJS_VERSION = '3.11.174'
-const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
+// Served from this site (public/vendor/pdfjs), the same version as the library.
+const PDFJS_BASE = '/vendor/pdfjs'
 // Match the source: scanned/catalog PDFs often embed page images at ~1200px wide.
 // Rendering far larger only upscales them, which looks blurry on phones.
 const TARGET_WIDTH = 1600 // px
@@ -12,7 +12,7 @@ const WEBP_QUALITY = 0.95 // high quality: avoids a second round of visible comp
 let workerReady = false
 function ensureWorker() {
   if (workerReady) return
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`
   workerReady = true
 }
 
@@ -64,14 +64,16 @@ export async function renderPdfPages(
 ): Promise<RenderResult> {
   ensureWorker()
   // CMaps map Korean/CJK character codes to glyphs; without them text renders as garbage.
-  const pdf = await pdfjsLib.getDocument({
+  const task = pdfjsLib.getDocument({
     data: source,
     cMapUrl: `${PDFJS_BASE}/cmaps/`,
+    wasmUrl: `${PDFJS_BASE}/wasm/`,
     cMapPacked: true,
     standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
     // Non-embedded Korean fonts (e.g. Malgun Gothic) are only drawn if the device has them.
     useSystemFonts: true,
-  }).promise
+  })
+  const pdf = await task.promise
   const pages: RenderedPage[] = []
   let thumbJpg: Blob | null = null
 
@@ -89,7 +91,7 @@ export async function renderPdfPages(
     ctx.fillStyle = '#ffffff' // PDFs can have transparent backgrounds
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    await page.render({ canvasContext: ctx, viewport }).promise
+    await page.render({ canvas, canvasContext: ctx, viewport }).promise
     const { blob, ext } = await canvasToBlob(canvas)
     pages.push({ pageNo: i, blob, ext })
     if (i === 1) thumbJpg = await canvasToJpeg(canvas)
@@ -100,7 +102,7 @@ export async function renderPdfPages(
     onPage?.(i, pdf.numPages)
   }
 
-  await pdf.destroy()
+  await task.destroy()
   if (!thumbJpg) throw new Error('PDF에 페이지가 없어요')
   return { numPages: pages.length, pages, thumbJpg }
 }
