@@ -17,6 +17,7 @@ type Msg = {
 
 type Own = { id: string; title: string; slug: string; thumb_url: string | null }
 type Member = { user_id: string; display_name: string | null }
+type Reader = { user_id: string; last_read_at: string }
 
 function timeOf(iso: string) {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -40,12 +41,23 @@ export default function ChatThreadPage() {
   const [friends, setFriends] = useState<Member[] | null>(null)
   const [invitePicked, setInvitePicked] = useState<string[]>([])
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [readers, setReaders] = useState<Reader[]>([])
+  const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
 
   const loadMembers = useCallback(async () => {
     const { data } = await supabase.rpc('get_chat_members', { p_thread: id })
     setMembers((data as Member[]) ?? [])
   }, [id, supabase])
+
+  const loadReaders = useCallback(async () => {
+    const { data } = await supabase.rpc('get_read_status', { p_thread: id })
+    setReaders((data as Reader[]) ?? [])
+  }, [id, supabase])
+
+  // Count of other members who had read the room at or after this message was sent.
+  const readCountOf = (m: Msg) =>
+    readers.filter((r) => new Date(r.last_read_at).getTime() >= new Date(m.created_at).getTime()).length
 
   const nameOf = (uid: string) => members.find((m) => m.user_id === uid)?.display_name || '회원'
 
@@ -72,6 +84,8 @@ export default function ChatThreadPage() {
       setPinned(thread.pinned === true)
       setIsGroup(thread.is_group === true)
       if (thread.is_group === true) await loadMembers()
+      const { data: receiptOn } = await supabase.rpc('get_my_read_receipts')
+      setReceipts(receiptOn !== false)
 
       const { data: rows, error: msgErr } = await supabase
         .from('chat_messages')
@@ -83,6 +97,7 @@ export default function ChatThreadPage() {
       setMessages((rows as Msg[]) ?? [])
       setLoaded(true)
       await markRead(user.id)
+      await loadReaders()
 
       channel = supabase
         .channel(`chat-${id}`)
@@ -107,6 +122,13 @@ export default function ChatThreadPage() {
     bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages.length])
 
+  // Read status has no realtime feed (chat_reads is private per user), so refresh it on a short interval.
+  useEffect(() => {
+    if (!me || !receipts) return
+    const timer = setInterval(() => void loadReaders(), 15000)
+    return () => clearInterval(timer)
+  }, [me, receipts, loadReaders])
+
   const send = async (payload: { body: string; catalog?: Own }) => {
     if (!me || busy) return
     setBusy(true)
@@ -130,6 +152,7 @@ export default function ChatThreadPage() {
     }
     const row = data as Msg
     setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
+    void loadReaders()
   }
 
   const submitText = async (e: React.FormEvent) => {
@@ -334,6 +357,11 @@ export default function ChatThreadPage() {
                 )}
                 <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
                   {isGroup && !mine && <span>{nameOf(m.sender_id)} · </span>}
+                  {mine && receipts && (() => {
+                    const n = readCountOf(m)
+                    if (!isGroup) return <span style={{ fontWeight: 700 }}>{n > 0 ? '읽음' : '1'}</span>
+                    return n > 0 ? <span style={{ fontWeight: 700 }}>{n}명 읽음</span> : null
+                  })()}
                   <span>{timeOf(m.created_at)}</span>
                   {!mine && (
                     <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>

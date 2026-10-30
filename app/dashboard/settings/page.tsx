@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [name, setName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [discoverable, setDiscoverable] = useState(true)
+  const [readReceipts, setReadReceipts] = useState(true)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [withdrawing, setWithdrawing] = useState(false)
@@ -30,9 +31,17 @@ export default function SettingsPage() {
       setName(data?.name ?? '')
       setIsAdmin(data?.is_admin === true)
       setDiscoverable(data?.discoverable !== false)
+      const { data: receiptOn } = await supabase.rpc('get_my_read_receipts')
+      setReadReceipts(receiptOn !== false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const toggleReceipts = async () => {
+    const next = !readReceipts
+    const { error } = await supabase.rpc('set_read_receipts', { p_on: next })
+    if (!error) setReadReceipts(next)
+  }
 
   const toggleDiscoverable = async () => {
     const next = !discoverable
@@ -88,6 +97,10 @@ export default function SettingsPage() {
           </Link>
           <button type="button" className="menu-item" onClick={toggleDiscoverable} aria-pressed={discoverable} style={{ width: '100%', textAlign: 'left', background: 'none', border: 0, cursor: 'pointer' }}>
             <span>{discoverable ? '🔎 회원 검색에 나오기: 켜짐' : '🔎 회원 검색에 나오기: 꺼짐'}</span>
+            <span aria-hidden="true">›</span>
+          </button>
+          <button type="button" className="menu-item" onClick={toggleReceipts} aria-pressed={readReceipts} style={{ width: '100%', textAlign: 'left', background: 'none', border: 0, cursor: 'pointer' }}>
+            <span>{readReceipts ? '👀 읽음 표시: 켜짐' : '👀 읽음 표시: 꺼짐'}</span>
             <span aria-hidden="true">›</span>
           </button>
           <Link className="menu-item" href="/dashboard/referral">

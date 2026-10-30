@@ -1467,3 +1467,60 @@ grant execute on function list_chat_threads() to authenticated;
 grant execute on function set_chat_alias(uuid, text) to authenticated;
 grant execute on function leave_chat(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 23. Read receipts (v23) ---------------------------------------------------
+-- Each member can turn read receipts off. When off, neither side sees the other's read status.
+create table if not exists chat_user_settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  read_receipts boolean not null default true
+);
+alter table chat_user_settings enable row level security;
+
+drop policy if exists chat_user_settings_own on chat_user_settings;
+create policy chat_user_settings_own on chat_user_settings for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create or replace function get_my_read_receipts()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select coalesce((select s.read_receipts from chat_user_settings s where s.user_id = auth.uid()), true)
+$$;
+
+create or replace function set_read_receipts(p_on boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요해요'; end if;
+  insert into chat_user_settings (user_id, read_receipts) values (auth.uid(), p_on)
+  on conflict (user_id) do update set read_receipts = excluded.read_receipts;
+end;
+$$;
+
+-- Other members' last read times in one room. Empty when the caller has receipts off,
+-- and members who have receipts off are left out.
+create or replace function get_read_status(p_thread uuid)
+returns table (user_id uuid, last_read_at timestamptz)
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null or not is_thread_member(p_thread, me) then return; end if;
+  if not get_my_read_receipts() then return; end if;
+  return query
+    select r.user_id, r.last_read_at
+    from chat_reads r
+    where r.thread_id = p_thread
+      and r.user_id <> me
+      and is_thread_member(p_thread, r.user_id)
+      and coalesce((select s.read_receipts from chat_user_settings s where s.user_id = r.user_id), true);
+end;
+$$;
+
+grant execute on function get_my_read_receipts() to authenticated;
+grant execute on function set_read_receipts(boolean) to authenticated;
+grant execute on function get_read_status(uuid) to authenticated;
+notify pgrst, 'reload schema';
