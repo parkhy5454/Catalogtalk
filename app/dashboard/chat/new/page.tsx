@@ -1,7 +1,8 @@
 'use client'
-// Find members by name or company and send friend requests. Chat opens after the friend accepts.
+// Find members by name or company and add them as friends. Adding opens the conversation at once.
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Result = {
@@ -13,6 +14,7 @@ type Result = {
 }
 
 export default function FindFriendsPage() {
+  const router = useRouter()
   const supabase = createClient()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Result[] | null>(null)
@@ -37,17 +39,16 @@ export default function FindFriendsPage() {
     setResults((data as Result[]) ?? [])
   }
 
-  const request = async (r: Result) => {
+  const addFriend = async (r: Result) => {
     setBusy(true)
     setMessage(null)
-    const { error } = await supabase.rpc('send_friend_request', { p_to: r.user_id })
+    const { data: threadId, error } = await supabase.rpc('send_friend_request', { p_to: r.user_id })
     setBusy(false)
-    if (error) {
-      setMessage({ kind: 'error', text: error.message })
+    if (error || !threadId) {
+      setMessage({ kind: 'error', text: error?.message ?? '친구를 추가하지 못했어요' })
       return
     }
-    setMessage({ kind: 'success', text: `${r.display_name ?? '회원'}님에게 친구 신청을 보냈어요` })
-    setResults((prev) => prev?.map((x) => (x.user_id === r.user_id ? { ...x, relation: 'sent' } : x)) ?? null)
+    router.push(`/dashboard/chat/${threadId}`)
   }
 
   return (
@@ -58,7 +59,7 @@ export default function FindFriendsPage() {
           <Link href="/dashboard/chat" className="btn btn-ghost">← 대화</Link>
         </div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-          회사명이나 이름으로 찾아 친구 신청을 보내세요. 상대가 수락하면 대화를 시작할 수 있어요.
+          회사명이나 이름으로 찾아 친구로 추가하면 바로 대화할 수 있어요.
         </p>
 
         <form onSubmit={search} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
@@ -94,14 +95,8 @@ export default function FindFriendsPage() {
                 </div>
                 {r.relation === 'friend' && r.thread_id ? (
                   <Link href={`/dashboard/chat/${r.thread_id}`} className="btn btn-primary">대화하기</Link>
-                ) : r.relation === 'none' ? (
-                  <button type="button" className="btn btn-primary" onClick={() => request(r)} disabled={busy}>친구 신청</button>
-                ) : r.relation === 'sent' ? (
-                  <span className="pill">신청 중</span>
-                ) : r.relation === 'received' ? (
-                  <Link href="/dashboard/chat" className="btn btn-ghost">받은 신청 보기</Link>
                 ) : (
-                  <span className="pill">신청 불가</span>
+                  <button type="button" className="btn btn-primary" onClick={() => addFriend(r)} disabled={busy}>친구 추가</button>
                 )}
               </li>
             ))}

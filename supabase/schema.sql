@@ -987,3 +987,48 @@ grant execute on function respond_friend_request(uuid, boolean) to authenticated
 grant execute on function list_friend_requests() to authenticated;
 grant execute on function open_chat(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 19. Add friend instantly (v19) ------------------------------------------
+-- Like KakaoTalk: adding a member makes them a friend at once and opens the conversation.
+-- No accept/reject step. Protection comes from block, report and a limit of 20 new friends a day.
+drop function if exists respond_friend_request(uuid, boolean);
+drop function if exists list_friend_requests();
+
+create or replace function send_friend_request(p_to uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+  today_count int;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_to = me then raise exception '자기 자신과는 친구가 될 수 없어요'; end if;
+  if not exists (select 1 from customers where user_id = p_to and discoverable) then
+    raise exception '이 회원을 추가할 수 없어요';
+  end if;
+  if is_blocked_between(me, p_to) then raise exception '이 회원을 추가할 수 없어요'; end if;
+
+  -- Already friends: just return the conversation.
+  select t.id into tid from chat_threads t
+    where t.user_a = least(me, p_to) and t.user_b = greatest(me, p_to);
+  if tid is not null then return tid; end if;
+
+  select count(*) into today_count from chat_friend_requests
+    where from_id = me and created_at > now() - interval '1 day';
+  if today_count >= 20 then raise exception '하루에 추가할 수 있는 친구는 20명까지예요'; end if;
+
+  insert into chat_friend_requests (from_id, to_id, status, responded_at)
+  values (me, p_to, 'accepted', now())
+  on conflict (from_id, to_id) do update set status = 'accepted', responded_at = now();
+
+  insert into chat_threads (user_a, user_b)
+  values (least(me, p_to), greatest(me, p_to))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+grant execute on function send_friend_request(uuid) to authenticated;
+notify pgrst, 'reload schema';
