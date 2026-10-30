@@ -8,6 +8,7 @@ import ZoomView from './zoom-view'
 import LeadSheet, { leadDone } from './lead-sheet'
 import QuoteSheet from './quote-sheet'
 import TranslationSheet from './translation-sheet'
+import ShopSheet, { type ShopProduct } from './shop-sheet'
 
 // One id per page load (one visit). Lets the owner group rows into visits.
 let cachedVisitId: string | null = null
@@ -128,6 +129,14 @@ export default function Viewer({ flipbook, pages }: Props) {
   }, [pageIdx, flipbook.lead_form, flipbook.id])
   // Quote request: opened from the top bar when the publisher turned it on.
   const [quoteOpen, setQuoteOpen] = useState(false)
+  // Products and order requests: the list is loaded once per visit.
+  const [products, setProducts] = useState<ShopProduct[]>([])
+  const [shopOpen, setShopOpen] = useState(false)
+  useEffect(() => {
+    createClient()
+      .rpc('get_products', { p_slug: flipbook.slug })
+      .then(({ data }) => setProducts(Array.isArray(data) ? (data as ShopProduct[]) : []))
+  }, [flipbook.slug])
   // AI translations: languages the publisher created, loaded once per visit.
   const [transLangs, setTransLangs] = useState<string[]>([])
   const [transOpen, setTransOpen] = useState(false)
@@ -439,6 +448,11 @@ export default function Viewer({ flipbook, pages }: Props) {
               ← 목록
             </a>
           )}
+          {products.length > 0 && (
+            <button type="button" className="btn btn-dark viewer-pill" onClick={() => setShopOpen(true)}>
+              상품
+            </button>
+          )}
           {transLangs.length > 0 && (
             <button type="button" className="btn btn-dark viewer-pill" onClick={() => setTransOpen(true)}>
               번역
@@ -480,6 +494,9 @@ export default function Viewer({ flipbook, pages }: Props) {
           ))}
         </div>
       </header>
+      {shopOpen && (
+        <ShopSheet flipbookId={flipbook.id} session={visitId()} products={products} orderOn={flipbook.order_form === true} onClose={() => setShopOpen(false)} />
+      )}
       {transOpen && (
         <TranslationSheet slug={flipbook.slug} langs={transLangs} onClose={() => setTransOpen(false)} />
       )}

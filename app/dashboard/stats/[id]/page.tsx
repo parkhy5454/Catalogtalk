@@ -366,6 +366,17 @@ export default function FlipbookStatsPage() {
         </div>
       </section>
 
+      <section className="panel" aria-labelledby="order-card-title" style={{ marginTop: 16 }}>
+        <h2 className="panel-title" id="order-card-title" style={{ fontSize: 16 }}>상품 · 주문</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          상품을 등록하면 열람 중 장바구니로 주문 요청을 받을 수 있어요. 결제는 아직 없어요.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          <Link href={`/dashboard/products/${id}`} className="btn btn-ghost">상품 관리</Link>
+          <Link href={`/dashboard/orders/${id}`} className="btn btn-ghost">주문 요청 보기</Link>
+        </div>
+      </section>
+
       {visits.length === 0 ? (
         <div className="notice notice-info" style={{ marginTop: 16 }}>
           아직 방문 기록이 없어요. 링크를 보내면 여기에 쌓여요.
