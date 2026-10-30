@@ -35,6 +35,10 @@ export default function ProductsPage() {
   const [options, setOptions] = useState('')
   const [busy, setBusy] = useState(false)
   const [reading, setReading] = useState<{ done: number; total: number } | null>(null)
+  const [editPage, setEditPage] = useState('')
+  const [editUrl, setEditUrl] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState('')
+  const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const stopRef = useRef(false)
   const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
 
@@ -101,6 +105,42 @@ export default function ProductsPage() {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     if (!res.ok) return setNotice({ kind: 'error', text: body.error ?? '설명을 쓰지 못했어요' })
     setNotice({ kind: 'success', text: `${p.name} 설명을 썼어요. 내용을 확인해 주세요.` })
+    await load()
+  }
+
+  const openPage = async () => {
+    const n = Number(editPage)
+    if (!Number.isInteger(n) || n < 1) return setNotice({ kind: 'error', text: '쪽 번호를 확인해 주세요' })
+    setNotice(null)
+    setEditUrl(null)
+    const res = await fetch(`/api/products/page-image?flipbook_id=${id}&page_no=${n}`)
+    const info = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
+    if (!res.ok || !info.url) return setNotice({ kind: 'error', text: info.error ?? '쪽 이미지를 불러오지 못했어요' })
+    setEditUrl(info.url)
+  }
+
+  // Maps a pointer position on the page image to 0..1 coordinates.
+  const relPoint = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    }
+  }
+
+  const finishDrag = async () => {
+    const d = drag
+    setDrag(null)
+    if (!d || !editTarget) return
+    const x = Math.min(d.x0, d.x1)
+    const y = Math.min(d.y0, d.y1)
+    const w = Math.abs(d.x1 - d.x0)
+    const h = Math.abs(d.y1 - d.y0)
+    if (w < 0.02 || h < 0.02) return setNotice({ kind: 'error', text: '조금 더 크게 그려 주세요' })
+    const box = [x, y, w, h].map((v) => Math.round(v * 10000) / 10000)
+    const { error } = await createClient().from('catalog_products').update({ bbox: box, image_url: null }).eq('id', editTarget)
+    if (error) return setNotice({ kind: 'error', text: '영역을 저장하지 못했어요' })
+    setNotice({ kind: 'success', text: '영역을 저장했어요. 사진 자르기를 다시 눌러 주세요.' })
     await load()
   }
 
@@ -208,6 +248,57 @@ export default function ProductsPage() {
           </label>
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>재구매 알림은 주문할 때 마케팅 소식에 동의한 분께만 이메일로 가요.</p>
         </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2 className="panel-title" style={{ fontSize: 16 }}>사진 위치 지정</h2>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+          쪽을 열고, 상품을 고른 뒤 사진이 있는 자리를 드래그해 주세요. 그 자리가 상품 사진이 돼요.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input className="input" inputMode="numeric" value={editPage} onChange={(e) => setEditPage(e.target.value.replace(/[^0-9]/g, ''))} placeholder="쪽 번호" style={{ width: 110 }} />
+          <button type="button" className="btn btn-ghost" onClick={openPage} disabled={!editPage}>쪽 열기</button>
+        </div>
+        {editUrl && (
+          <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+            <select className="input" value={editTarget} onChange={(e) => setEditTarget(e.target.value)}>
+              <option value="">상품 고르기</option>
+              {(products ?? []).filter((p) => p.page_no === Number(editPage)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div
+              onPointerDown={(e) => {
+                if (!editTarget) return setNotice({ kind: 'error', text: '먼저 상품을 골라 주세요' })
+                e.currentTarget.setPointerCapture(e.pointerId)
+                const pt = relPoint(e)
+                setDrag({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y })
+              }}
+              onPointerMove={(e) => {
+                if (!drag) return
+                const pt = relPoint(e)
+                setDrag({ ...drag, x1: pt.x, y1: pt.y })
+              }}
+              onPointerUp={() => { void finishDrag() }}
+              style={{ position: 'relative', touchAction: 'none', userSelect: 'none', borderRadius: 8, overflow: 'hidden' }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={editUrl} alt="" draggable={false} style={{ width: '100%', display: 'block' }} />
+              {(products ?? []).filter((p) => p.page_no === Number(editPage) && p.bbox).map((p) => (
+                <div key={p.id} style={{
+                  position: 'absolute', pointerEvents: 'none', border: '2px solid #1f9d7a', background: 'rgba(31,157,122,0.12)',
+                  left: `${(p.bbox as number[])[0] * 100}%`, top: `${(p.bbox as number[])[1] * 100}%`,
+                  width: `${(p.bbox as number[])[2] * 100}%`, height: `${(p.bbox as number[])[3] * 100}%`,
+                }} />
+              ))}
+              {drag && (
+                <div style={{
+                  position: 'absolute', pointerEvents: 'none', border: '2px dashed #c0392b',
+                  left: `${Math.min(drag.x0, drag.x1) * 100}%`, top: `${Math.min(drag.y0, drag.y1) * 100}%`,
+                  width: `${Math.abs(drag.x1 - drag.x0) * 100}%`, height: `${Math.abs(drag.y1 - drag.y0) * 100}%`,
+                }} />
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel" style={{ marginTop: 16 }}>

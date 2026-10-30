@@ -21,6 +21,7 @@ type Props = {
   session: string
   products: ShopProduct[]
   orderOn: boolean
+  initialId?: string | null
   onClose: () => void
 }
 
@@ -30,8 +31,8 @@ const field: React.CSSProperties = {
 }
 const btn: React.CSSProperties = { padding: 12, fontSize: 15, borderRadius: 10, border: 0, background: '#111', color: '#fff' }
 
-export default function ShopSheet({ flipbookId, session, products, orderOn, onClose }: Props) {
-  const [cart, setCart] = useState<Record<string, number>>({})
+export default function ShopSheet({ flipbookId, session, products, orderOn, initialId, onClose }: Props) {
+  const [cart, setCart] = useState<Record<string, number>>(() => (initialId ? { [initialId]: 1 } : {}))
   const [choice, setChoice] = useState<Record<string, string>>({})
   const [delivery, setDelivery] = useState('')
   const [step, setStep] = useState<'items' | 'form' | 'done'>('items')
