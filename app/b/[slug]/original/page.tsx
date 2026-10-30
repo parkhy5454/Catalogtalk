@@ -84,7 +84,8 @@ export default function OriginalPage() {
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          padding: '12px 14px',
+          // Start below the iPhone status bar / notch (the app draws behind it).
+          padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px',
           background: '#000',
         }}
       >
