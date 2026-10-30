@@ -2866,3 +2866,81 @@ create policy deals_owner_all on deals for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 notify pgrst, 'reload schema';
+
+-- 39. Webhook log retention and standard contracts (v39) ----------------------
+
+-- Webhook deliveries carry lead contacts, so their log is kept 30 days only.
+create or replace function purge_old_webhook_deliveries()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from webhook_deliveries where created_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end $$;
+revoke all on function purge_old_webhook_deliveries() from public, anon, authenticated;
+
+-- Contract records: a standard terms document made from an accepted quote.
+-- The buyer opens it by a private link and confirms ("동의"). This is a click-agreement record,
+-- not a certified electronic signature.
+create table if not exists contracts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  quote_id uuid references quote_requests(id) on delete set null,
+  token text not null unique default replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),
+  title text not null check (char_length(title) between 1 and 100),
+  buyer_name text not null check (char_length(buyer_name) between 1 and 40),
+  buyer_company text check (buyer_company is null or char_length(buyer_company) <= 60),
+  body text not null check (char_length(body) <= 8000),
+  amount bigint not null check (amount >= 0),
+  status text not null default 'sent' check (status in ('sent', 'agreed')),
+  agreed_at timestamptz,
+  expires_at timestamptz not null default now() + interval '30 days',
+  created_at timestamptz not null default now()
+);
+create index if not exists contracts_user_idx on contracts (user_id, created_at);
+
+alter table contracts enable row level security;
+drop policy if exists contracts_owner_all on contracts;
+create policy contracts_owner_all on contracts for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- The buyer reads one contract by its private token only.
+create or replace function get_contract(p_token text)
+returns table (
+  title text, buyer_name text, buyer_company text, body text, amount bigint,
+  status text, agreed_at timestamptz, expires_at timestamptz, seller_company text
+)
+language sql stable security definer set search_path = public
+as $$
+  select c.title, c.buyer_name, c.buyer_company, c.body, c.amount,
+         c.status, c.agreed_at, c.expires_at, cu.company_name
+  from contracts c
+  left join customers cu on cu.user_id = c.user_id
+  where c.token = p_token
+  limit 1;
+$$;
+
+-- Records the buyer's confirmation once, while the link is still valid.
+create or replace function agree_contract(p_token text)
+returns timestamptz
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_at timestamptz;
+begin
+  update contracts set status = 'agreed', agreed_at = now()
+    where token = p_token and status = 'sent' and expires_at > now()
+    returning agreed_at into v_at;
+  if v_at is null then
+    raise exception '이미 처리됐거나 만료된 계약이에요';
+  end if;
+  return v_at;
+end $$;
+
+grant execute on function get_contract(text), agree_contract(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
