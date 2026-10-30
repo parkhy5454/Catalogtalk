@@ -1,6 +1,6 @@
 'use client'
 // One business conversation: live messages, catalog cards, report and block.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,27 @@ type Reader = { user_id: string; last_read_at: string }
 
 function timeOf(iso: string) {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+}
+
+const MENU_ITEM: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: '13px 16px',
+  fontSize: 15,
+  background: '#fff',
+  border: 0,
+  borderBottom: '1px solid #f1f1f1',
+  cursor: 'pointer',
+  color: '#111',
+}
+
+function dayKey(iso: string) {
+  return new Date(iso).toDateString()
+}
+
+function dayLabel(iso: string) {
+  return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
 }
 
 export default function ChatThreadPage() {
@@ -44,6 +65,7 @@ export default function ChatThreadPage() {
   const [readers, setReaders] = useState<Reader[]>([])
   const [savingId, setSavingId] = useState<string | null>(null)
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
+  const [menuOpen, setMenuOpen] = useState(false)
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
 
@@ -290,30 +312,58 @@ export default function ChatThreadPage() {
   }
 
   return (
-    <main className="container section" style={{ paddingBottom: 110 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <Link href="/dashboard/chat" className="btn btn-ghost">← 목록</Link>
-        <strong className="truncate" style={{ flex: 1 }}>{partner.company || '회원'}</strong>
-        {isGroup && (
-          <button type="button" className="btn btn-ghost" onClick={openInvite} aria-expanded={inviteOpen}>초대</button>
-        )}
-        <button type="button" className="btn btn-ghost" onClick={rename}>이름</button>
-        {!isGroup && partner?.id && (
-          <button type="button" className="btn btn-ghost" onClick={blockPartner}>차단</button>
-        )}
-        <button type="button" className="btn btn-ghost" onClick={leave}>나가기</button>
-        <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
-          {pinned ? '고정 해제' : '고정'}
+    <main className="container section" style={{ paddingBottom: 120, background: '#eef0f3', minHeight: '100vh' }}>
+      <header
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          margin: '0 0 8px',
+          padding: '8px 4px',
+          background: 'rgba(255,255,255,0.94)',
+          borderBottom: '1px solid #e5e7eb',
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        <Link href="/dashboard/chat" aria-label="대화 목록" style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', fontSize: 26, lineHeight: 1, color: '#111', textDecoration: 'none' }}>
+          ‹
+        </Link>
+        <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+          <div className="truncate" style={{ fontWeight: 700, fontSize: 16 }}>{partner.company || (isGroup ? '단체 대화' : '회원')}</div>
+          {isGroup && <div style={{ fontSize: 11, color: '#8a8a8a' }}>참여자 {members.length}명</div>}
+        </div>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label="대화 메뉴"
+          aria-expanded={menuOpen}
+          style={{ width: 36, height: 36, borderRadius: 18, border: 0, background: 'transparent', fontSize: 20, lineHeight: 1, cursor: 'pointer', color: '#111' }}
+        >
+          ⋯
         </button>
-      </div>
+
+        {menuOpen && (
+          <>
+            <div onClick={() => setMenuOpen(false)} aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 9 }} />
+            <div role="menu" style={{ position: 'absolute', right: 4, top: 46, zIndex: 10, minWidth: 180, background: '#fff', borderRadius: 14, boxShadow: '0 10px 30px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+              <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void rename() }}>이름 바꾸기</button>
+              <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void togglePin() }}>{pinned ? '고정 해제' : '고정하기'}</button>
+              {isGroup && (
+                <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void openInvite() }}>친구 초대</button>
+              )}
+              {!isGroup && partner?.id && (
+                <button type="button" role="menuitem" style={{ ...MENU_ITEM, color: '#d32f2f' }} onClick={() => { setMenuOpen(false); void blockPartner() }}>차단하기</button>
+              )}
+              <button type="button" role="menuitem" style={{ ...MENU_ITEM, color: '#d32f2f', borderBottom: 0 }} onClick={() => { setMenuOpen(false); void leave() }}>나가기</button>
+            </div>
+          </>
+        )}
+      </header>
 
       {error && <div className="notice notice-error" role="alert" style={{ marginBottom: 10 }}>{error}</div>}
-
-      {isGroup && (
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-          참여자 {members.length}명 · {members.map((m) => m.display_name || '회원').join(', ')}
-        </div>
-      )}
 
       {isGroup && inviteOpen && (
         <div className="panel" style={{ marginBottom: 12 }}>
@@ -348,79 +398,100 @@ export default function ChatThreadPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'grid' }}>
         {messages.length === 0 && (
-          <div className="notice notice-info">첫 메시지를 보내 보세요. 카탈로그를 첨부하면 바로 열어 볼 수 있어요.</div>
+          <div className="notice notice-info" style={{ marginTop: 8 }}>첫 메시지를 보내 보세요. 카탈로그를 첨부하면 바로 열어 볼 수 있어요.</div>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
+          const prev = messages[i - 1]
+          const next = messages[i + 1]
           const mine = m.sender_id === me
+          const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at)
+          const firstInGroup = newDay || prev.sender_id !== m.sender_id
+          const lastInGroup = !next || next.sender_id !== m.sender_id || dayKey(next.created_at) !== dayKey(m.created_at)
+          const readCount = mine && receipts ? readCountOf(m) : 0
           return (
-            <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '80%', display: 'grid', gap: 4, justifyItems: mine ? 'end' : 'start' }}>
-                {m.catalog_slug && (
-                  <a
-                    href={`/b/${m.catalog_slug}`}
-                    className="info-box"
-                    style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', color: 'inherit', padding: 10 }}
-                  >
-                    {m.catalog_thumb ? (
-                      <img src={m.catalog_thumb} alt="" width={44} height={56} style={{ objectFit: 'cover', borderRadius: 4 }} />
-                    ) : (
-                      <span aria-hidden="true">📄</span>
-                    )}
-                    <span className="truncate" style={{ fontWeight: 600 }}>{m.catalog_title || '카탈로그'}</span>
-                  </a>
-                )}
-                {m.body && (
-                  <div
-                    style={{
-                      padding: '10px 14px',
-                      fontSize: 15,
-                      lineHeight: 1.5,
-                      borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                      background: mine ? 'var(--yellow, #FFE100)' : '#fff',
-                      color: 'var(--ink, #111)',
-                      border: mine ? '1px solid rgba(0,0,0,0.06)' : '1px solid var(--line, #e5e5e5)',
-                      boxShadow: mine ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {m.body}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
-                  {isGroup && !mine && <span>{nameOf(m.sender_id)} · </span>}
-                  {mine && receipts && (() => {
-                    const n = readCountOf(m)
-                    if (!isGroup) return <span style={{ fontWeight: 700 }}>{n > 0 ? '읽음' : '1'}</span>
-                    return n > 0 ? <span style={{ fontWeight: 700 }}>{n}명 읽음</span> : null
-                  })()}
-                  <span>{timeOf(m.created_at)}</span>
-                  {!mine && m.catalog_slug && (
-                    savedIds.has(m.id) ? (
-                      <Link href="/dashboard/folders" style={{ fontSize: 11, color: 'var(--ink, #111)', fontWeight: 700 }}>
-                        내 목록에 저장됨
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => saveCatalog(m)}
-                        disabled={savingId !== null}
-                        style={{ fontSize: 11, color: 'var(--ink, #111)', fontWeight: 700, background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
-                      >
-                        {savingId === m.id ? '저장 중...' : '내 목록에 저장'}
-                      </button>
-                    )
+            <Fragment key={m.id}>
+              {newDay && (
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#8a8a8a', margin: '16px 0 6px' }}>{dayLabel(m.created_at)}</div>
+              )}
+              <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', marginTop: firstInGroup ? 10 : 2 }}>
+                <div style={{ maxWidth: '78%', display: 'grid', gap: 3, justifyItems: mine ? 'end' : 'start' }}>
+                  {isGroup && !mine && firstInGroup && (
+                    <span style={{ fontSize: 12, color: '#6b6b6b', padding: '0 6px' }}>{nameOf(m.sender_id)}</span>
                   )}
-                  {!mine && (
-                    <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
-                      신고
-                    </button>
+                  {m.catalog_slug && (
+                    <a
+                      href={`/b/${m.catalog_slug}`}
+                      style={{
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'center',
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        padding: 10,
+                        background: '#fff',
+                        borderRadius: 14,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      {m.catalog_thumb ? (
+                        <img src={m.catalog_thumb} alt="" width={44} height={56} style={{ objectFit: 'cover', borderRadius: 4 }} />
+                      ) : (
+                        <span aria-hidden="true">📄</span>
+                      )}
+                      <span className="truncate" style={{ fontWeight: 600 }}>{m.catalog_title || '카탈로그'}</span>
+                    </a>
+                  )}
+                  {m.body && (
+                    <div
+                      style={{
+                        padding: '9px 13px',
+                        fontSize: 15,
+                        lineHeight: 1.5,
+                        borderRadius: mine
+                          ? (lastInGroup ? '18px 18px 4px 18px' : 18)
+                          : (lastInGroup ? '18px 18px 18px 4px' : 18),
+                        background: mine ? 'var(--yellow, #fee500)' : '#fff',
+                        color: 'var(--ink, #111)',
+                        boxShadow: mine ? 'none' : '0 1px 1px rgba(0,0,0,0.05)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {m.body}
+                    </div>
+                  )}
+                  {lastInGroup && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: '#8a8a8a', padding: '0 4px' }}>
+                      {mine && receipts && (isGroup
+                        ? (readCount > 0 && <span style={{ fontWeight: 700, color: '#555' }}>{readCount}명 읽음</span>)
+                        : <span style={{ fontWeight: 700, color: '#555' }}>{readCount > 0 ? '읽음' : '1'}</span>)}
+                      <span>{timeOf(m.created_at)}</span>
+                      {!mine && m.catalog_slug && (
+                        savedIds.has(m.id) ? (
+                          <Link href="/dashboard/folders" style={{ color: '#111', fontWeight: 700 }}>저장됨</Link>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => saveCatalog(m)}
+                            disabled={savingId !== null}
+                            style={{ color: '#111', fontWeight: 700, background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 11 }}
+                          >
+                            {savingId === m.id ? '저장 중...' : '내 목록에 저장'}
+                          </button>
+                        )
+                      )}
+                      {!mine && (
+                        <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: '#8a8a8a', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
+                          신고
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
-            </div>
+            </Fragment>
           )
         })}
         <div ref={bottom} />
@@ -471,19 +542,24 @@ export default function ChatThreadPage() {
           right: 0,
           // Sits above the bottom tab bar (64px + iPhone home-indicator inset).
           bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))',
-          padding: '10px 12px 10px',
-          background: '#fff',
-          borderTop: '1px solid var(--line, #e5e5e5)',
+          padding: '8px 10px',
+          background: 'rgba(255,255,255,0.96)',
+          borderTop: '1px solid #e5e7eb',
           display: 'flex',
-          gap: 8,
+          gap: 6,
           alignItems: 'flex-end',
         }}
       >
-        <button type="button" className="btn btn-ghost" onClick={openCatalogPicker} disabled={busy} aria-label="카탈로그 첨부">
+        <button
+          type="button"
+          onClick={openCatalogPicker}
+          disabled={busy}
+          aria-label="카탈로그 첨부"
+          style={{ width: 40, height: 40, borderRadius: 20, border: 0, background: 'transparent', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}
+        >
           📎
         </button>
         <textarea
-          className="input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -495,11 +571,41 @@ export default function ChatThreadPage() {
           }}
           maxLength={2000}
           rows={1}
-          placeholder="메시지 입력"
-          style={{ flex: 1, resize: 'none' }}
+          placeholder="메시지"
           disabled={busy}
+          style={{
+            flex: 1,
+            resize: 'none',
+            border: 0,
+            outline: 'none',
+            background: '#f1f2f4',
+            borderRadius: 20,
+            padding: '10px 14px',
+            fontSize: 15,
+            lineHeight: 1.4,
+            maxHeight: 120,
+            fontFamily: 'inherit',
+          }}
         />
-        <button type="submit" className="btn btn-primary" disabled={busy || !text.trim()}>보내기</button>
+        <button
+          type="submit"
+          disabled={busy || !text.trim()}
+          aria-label="보내기"
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            border: 0,
+            flexShrink: 0,
+            background: text.trim() ? 'var(--yellow, #fee500)' : '#e2e4e8',
+            color: '#111',
+            fontSize: 18,
+            fontWeight: 800,
+            cursor: text.trim() ? 'pointer' : 'default',
+          }}
+        >
+          ↑
+        </button>
       </form>
     </main>
   )
