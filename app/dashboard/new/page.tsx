@@ -49,16 +49,24 @@ export default function NewFlipbookPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
-      const [cust, books, fo] = await Promise.all([
+      const [cust, books, fo, team] = await Promise.all([
         supabase.from('customers').select('plan, bonus_flipbooks').eq('user_id', user.id).maybeSingle(),
         supabase.from('flipbooks').select('id').eq('user_id', user.id),
         supabase.from('folders').select('id, name').eq('user_id', user.id).order('created_at', { ascending: true }),
+        supabase.rpc('get_my_team'),
       ])
-      const plan = cust.data?.plan ?? 'free'
-      const bonus = cust.data?.bonus_flipbooks ?? 0
-      const base = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
-      setLimit(base === null ? null : base + bonus)
-      setCount((books.data ?? []).length)
+      const myTeam = ((team.data as { catalog_count: number }[] | null) ?? [])[0]
+      if (myTeam) {
+        // Team members share one pool of catalog slots (enforced by the database too).
+        setLimit(200)
+        setCount(myTeam.catalog_count)
+      } else {
+        const plan = cust.data?.plan ?? 'free'
+        const bonus = cust.data?.bonus_flipbooks ?? 0
+        const base = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
+        setLimit(base === null ? null : base + bonus)
+        setCount((books.data ?? []).length)
+      }
       setFolders((fo.data as { id: string; name: string }[]) ?? [])
       setLoaded(true)
     })()

@@ -2143,3 +2143,215 @@ $$;
 grant execute on function get_flipbook(text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 32. Team plan (v32) ----------------------------------------------------
+
+-- Placeholder numbers, change here and in the trigger together:
+--   pool of catalogs per team = 200, members per team = 30.
+
+create table if not exists teams (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(btrim(name)) between 1 and 40),
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists team_members (
+  team_id uuid not null references teams(id) on delete cascade,
+  user_id uuid not null unique references auth.users(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (team_id, user_id)
+);
+
+create table if not exists team_invites (
+  token text primary key,
+  team_id uuid not null references teams(id) on delete cascade,
+  created_by uuid references auth.users(id) on delete set null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+alter table flipbooks add column if not exists team_id uuid references teams(id) on delete set null;
+create index if not exists flipbooks_team_idx on flipbooks (team_id);
+
+alter table teams enable row level security;
+alter table team_members enable row level security;
+alter table team_invites enable row level security;
+
+-- Team ids of the caller. Security definer so policies do not recurse into team_members.
+create or replace function my_team_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select team_id from team_members where user_id = auth.uid();
+$$;
+revoke all on function my_team_ids() from public, anon;
+grant execute on function my_team_ids() to authenticated;
+
+drop policy if exists teams_member_select on teams;
+create policy teams_member_select on teams for select to authenticated
+  using (id in (select my_team_ids()));
+
+drop policy if exists team_members_member_select on team_members;
+create policy team_members_member_select on team_members for select to authenticated
+  using (team_id in (select my_team_ids()));
+-- team_invites: no direct access; members use the functions below.
+
+-- Team members can read the team's catalogs (read only; edits stay with the owner).
+drop policy if exists flipbooks_owner_select on flipbooks;
+create policy flipbooks_owner_select on flipbooks for select to authenticated
+  using (user_id = auth.uid() or team_id in (select my_team_ids()));
+
+-- Catalog limit: a team member's new catalogs count against the team pool instead.
+create or replace function enforce_flipbook_limit()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_plan text;
+  v_bonus int;
+  v_limit int;
+  v_count int;
+  v_team uuid;
+begin
+  select m.team_id into v_team from team_members m where m.user_id = new.user_id;
+  if v_team is not null then
+    select count(*) into v_count from flipbooks where team_id = v_team;
+    if v_count >= 200 then
+      raise exception 'PLAN_LIMIT: 팀 자료는 팀 전체 %개까지 만들 수 있어요', 200
+        using errcode = 'P0001';
+    end if;
+    new.team_id := v_team;
+    return new;
+  end if;
+
+  select coalesce(c.plan, 'free'), coalesce(c.bonus_flipbooks, 0)
+    into v_plan, v_bonus
+    from customers c where c.user_id = new.user_id;
+  v_limit := case coalesce(v_plan, 'free')
+    when 'free' then 3 + v_bonus
+    when 'starter' then 20 + v_bonus
+    else null
+  end;
+  if v_limit is not null then
+    select count(*) into v_count from flipbooks where user_id = new.user_id;
+    if v_count >= v_limit then
+      raise exception 'PLAN_LIMIT: 현재 요금제에서는 플립북을 %개까지 만들 수 있어요', v_limit
+        using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function create_team(p_name text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+begin
+  if auth.uid() is null then raise exception '로그인이 필요해요'; end if;
+  if exists (select 1 from team_members where user_id = auth.uid()) then
+    raise exception '이미 팀에 참여하고 있어요';
+  end if;
+  if char_length(v_name) not between 1 and 40 then raise exception '팀 이름을 입력해 주세요'; end if;
+  insert into teams (name, created_by) values (v_name, auth.uid()) returning id into v_id;
+  insert into team_members (team_id, user_id) values (v_id, auth.uid());
+  return v_id;
+end;
+$$;
+
+-- Any member can create an invite link. It is valid for 7 days.
+create or replace function create_team_invite()
+returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_team uuid;
+  v_token text;
+begin
+  select m.team_id into v_team from team_members m where m.user_id = auth.uid();
+  if v_team is null then raise exception '팀에 먼저 참여해 주세요'; end if;
+  v_token := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
+  insert into team_invites (token, team_id, created_by, expires_at)
+  values (v_token, v_team, auth.uid(), now() + interval '7 days');
+  return v_token;
+end;
+$$;
+
+create or replace function join_team(p_token text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_team uuid;
+  v_expires timestamptz;
+  v_members int;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요해요'; end if;
+  select i.team_id, i.expires_at into v_team, v_expires from team_invites i where i.token = p_token;
+  if v_team is null or v_expires < now() then
+    raise exception '초대 링크가 만료되었거나 올바르지 않아요';
+  end if;
+  if exists (select 1 from team_members where user_id = auth.uid() and team_id <> v_team) then
+    raise exception '이미 다른 팀에 참여하고 있어요. 먼저 팀에서 나와 주세요';
+  end if;
+  if exists (select 1 from team_members where user_id = auth.uid() and team_id = v_team) then
+    return v_team;
+  end if;
+  select count(*) into v_members from team_members where team_id = v_team;
+  if v_members >= 30 then raise exception '팀 인원(30명)이 가득 찼어요'; end if;
+  insert into team_members (team_id, user_id) values (v_team, auth.uid());
+  return v_team;
+end;
+$$;
+
+-- Leaving: your own catalogs stay yours but leave the team pool. The team is removed when empty.
+create or replace function leave_team()
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_team uuid;
+begin
+  select m.team_id into v_team from team_members m where m.user_id = auth.uid();
+  if v_team is null then return; end if;
+  delete from team_members where user_id = auth.uid();
+  update flipbooks set team_id = null where user_id = auth.uid() and team_id = v_team;
+  if not exists (select 1 from team_members where team_id = v_team) then
+    delete from teams where id = v_team;
+  end if;
+end;
+$$;
+
+-- Team info for the signed-in member (no row when not in a team).
+create or replace function get_my_team()
+returns table (id uuid, name text, member_count int, catalog_count int)
+language sql stable security definer set search_path = public
+as $$
+  select t.id, t.name,
+         (select count(*)::int from team_members x where x.team_id = t.id),
+         (select count(*)::int from flipbooks f where f.team_id = t.id)
+  from teams t
+  join team_members me on me.team_id = t.id and me.user_id = auth.uid();
+$$;
+
+create or replace function list_team_members()
+returns table (user_id uuid, display_name text, company_name text, is_me boolean)
+language sql stable security definer set search_path = public
+as $$
+  select m.user_id, c.name, c.company_name, m.user_id = auth.uid()
+  from team_members m
+  left join customers c on c.user_id = m.user_id
+  where m.team_id in (select my_team_ids())
+  order by m.joined_at;
+$$;
+
+revoke all on function create_team(text), create_team_invite(), join_team(text), leave_team(),
+  get_my_team(), list_team_members() from public, anon;
+grant execute on function create_team(text), create_team_invite(), join_team(text), leave_team(),
+  get_my_team(), list_team_members() to authenticated;
+
+notify pgrst, 'reload schema';
