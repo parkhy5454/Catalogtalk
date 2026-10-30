@@ -80,8 +80,8 @@ export default function SettingsPage() {
             <span>🏢 사업자 인증</span>
             <span aria-hidden="true">›</span>
           </Link>
-          <Link className="menu-item" href="/dashboard/chat">
-            <span>💬 사업자 대화</span>
+          <Link className="menu-item" href="/dashboard/referral">
+            <span>🎁 친구 추천</span>
             <span aria-hidden="true">›</span>
           </Link>
           <Link className="menu-item" href="/privacy">

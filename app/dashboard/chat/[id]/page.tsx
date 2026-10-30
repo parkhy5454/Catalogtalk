@@ -275,8 +275,9 @@ export default function ChatThreadPage() {
           position: 'fixed',
           left: 0,
           right: 0,
-          bottom: 0,
-          padding: '10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px)',
+          // Sits above the bottom tab bar (64px + iPhone home-indicator inset).
+          bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))',
+          padding: '10px 12px 10px',
           background: '#fff',
           borderTop: '1px solid var(--line, #e5e5e5)',
           display: 'flex',

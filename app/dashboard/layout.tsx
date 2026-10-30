@@ -14,8 +14,8 @@ const LEFT_TABS = [
   { href: '/dashboard/folders', label: 'My Book', icon: '📚', match: ['/dashboard/folders'] },
 ] as const
 const RIGHT_TABS = [
-  { href: '/dashboard/referral', label: '친구 추천', icon: '🎁', match: ['/dashboard/referral'] },
-  { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin'] },
+  { href: '/dashboard/chat', label: '대화', icon: '💬', match: ['/dashboard/chat', '/dashboard/business'] },
+  { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin', '/dashboard/referral'] },
 ] as const
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
