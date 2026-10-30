@@ -15,7 +15,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [company, setCompany] = useState('')
   const [ref, setRef] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -55,7 +54,6 @@ export default function SignupPage() {
         data: {
           name: name.trim(),
           phone: phone.trim(),
-          company_name: company.trim(),
           ...(ref ? { ref } : {}),
         },
       },
@@ -116,17 +114,6 @@ export default function SignupPage() {
                 inputMode="tel"
                 autoComplete="tel"
                 maxLength={20}
-              />
-            </label>
-            <label className="field">
-              <span className="sr-only">회사명</span>
-              <input
-                className="input"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                onFocus={scrollIntoViewOnFocus}
-                placeholder="회사명 (선택)"
-                autoComplete="organization"
               />
             </label>
             <label className="field">

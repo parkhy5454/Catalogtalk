@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [discoverable, setDiscoverable] = useState(true)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [withdrawing, setWithdrawing] = useState(false)
@@ -23,14 +24,23 @@ export default function SettingsPage() {
       setEmail(user.email ?? '')
       const { data } = await supabase
         .from('customers')
-        .select('name, is_admin')
+        .select('name, is_admin, discoverable')
         .eq('user_id', user.id)
         .maybeSingle()
       setName(data?.name ?? '')
       setIsAdmin(data?.is_admin === true)
+      setDiscoverable(data?.discoverable !== false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const toggleDiscoverable = async () => {
+    const next = !discoverable
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { error } = await supabase.from('customers').update({ discoverable: next }).eq('user_id', user.id)
+    if (!error) setDiscoverable(next)
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -76,6 +86,10 @@ export default function SettingsPage() {
             <span>👤 내 정보</span>
             <span aria-hidden="true">›</span>
           </Link>
+          <button type="button" className="menu-item" onClick={toggleDiscoverable} aria-pressed={discoverable} style={{ width: '100%', textAlign: 'left', background: 'none', border: 0, cursor: 'pointer' }}>
+            <span>{discoverable ? '🔎 회원 검색에 나오기: 켜짐' : '🔎 회원 검색에 나오기: 꺼짐'}</span>
+            <span aria-hidden="true">›</span>
+          </button>
           <Link className="menu-item" href="/dashboard/referral">
             <span>🎁 친구 추천</span>
             <span aria-hidden="true">›</span>

@@ -1,77 +1,112 @@
 'use client'
-// Start a conversation by entering the other member's friend code (설정 → 친구 추천).
+// Find members by name or company and send friend requests. Chat opens after the friend accepts.
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-export default function NewChatPage() {
-  const router = useRouter()
-  const supabase = createClient()
-  const [code, setCode] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+type Result = {
+  user_id: string
+  display_name: string | null
+  company_name: string | null
+  relation: 'none' | 'sent' | 'received' | 'friend' | 'rejected'
+  thread_id: string | null
+}
 
-  const start = async (e: React.FormEvent) => {
+export default function FindFriendsPage() {
+  const supabase = createClient()
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Result[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+
+  const search = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (busy) return
-    const clean = code.replace(/\s/g, '').toUpperCase()
-    if (clean.length !== 8) {
-      setError('친구 코드 8자리를 입력해 주세요')
+    const q = query.trim()
+    if (q.length < 2) {
+      setMessage({ kind: 'error', text: '이름이나 회사명을 2글자 이상 입력해 주세요' })
       return
     }
     setBusy(true)
-    setError(null)
-    const { data, error: findErr } = await supabase.rpc('find_chat_partner', { p_code: clean })
-    const found = Array.isArray(data) ? data[0] : null
-    if (findErr) {
-      // Shows the database message (for example, "function does not exist" when schema v16 is not applied).
-      setError(`코드 확인 실패: ${findErr.message}`)
-      setBusy(false)
+    setMessage(null)
+    const { data, error } = await supabase.rpc('search_members', { p_query: q })
+    setBusy(false)
+    if (error) {
+      setMessage({ kind: 'error', text: `검색하지 못했어요: ${error.message}` })
       return
     }
-    if (!found) {
-      setError('이 코드의 회원을 찾지 못했어요')
-      setBusy(false)
+    setResults((data as Result[]) ?? [])
+  }
+
+  const request = async (r: Result) => {
+    setBusy(true)
+    setMessage(null)
+    const { error } = await supabase.rpc('send_friend_request', { p_to: r.user_id })
+    setBusy(false)
+    if (error) {
+      setMessage({ kind: 'error', text: error.message })
       return
     }
-    const { data: threadId, error: openErr } = await supabase.rpc('open_chat', { p_other: found.user_id })
-    if (openErr || !threadId) {
-      setError(openErr?.message?.includes('대화할 수 없는') ? '대화할 수 없는 상대예요' : '대화를 시작하지 못했어요')
-      setBusy(false)
-      return
-    }
-    router.push(`/dashboard/chat/${threadId}`)
+    setMessage({ kind: 'success', text: `${r.display_name ?? '회원'}님에게 친구 신청을 보냈어요` })
+    setResults((prev) => prev?.map((x) => (x.user_id === r.user_id ? { ...x, relation: 'sent' } : x)) ?? null)
   }
 
   return (
     <main className="container section">
       <section className="panel">
         <div className="panel-head">
-          <h1 className="panel-title">새 대화</h1>
+          <h1 className="panel-title">친구 찾기</h1>
+          <Link href="/dashboard/chat" className="btn btn-ghost">← 대화</Link>
         </div>
-        <form onSubmit={start} className="form-stack">
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-            상대방의 친구 코드 8자리를 입력해 주세요. 내 코드는 설정 → 친구 추천에서 볼 수 있어요.
-          </p>
-          <label className="field">
-            <span className="field-label">친구 코드</span>
-            <input
-              className="input"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="예: AB12CD34"
-              maxLength={12}
-              autoCapitalize="characters"
-              autoCorrect="off"
-              spellCheck={false}
-              disabled={busy}
-            />
-          </label>
-          {error && <div className="notice notice-error" role="alert">{error}</div>}
-          <button type="submit" className="btn btn-primary btn-block" disabled={busy || !code.trim()}>
-            {busy ? '찾는 중...' : '대화 시작'}
-          </button>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          회사명이나 이름으로 찾아 친구 신청을 보내세요. 상대가 수락하면 대화를 시작할 수 있어요.
+        </p>
+
+        <form onSubmit={search} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input
+            className="input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="회사명 또는 이름 (2글자 이상)"
+            disabled={busy}
+            style={{ flex: 1 }}
+          />
+          <button type="submit" className="btn btn-primary" disabled={busy}>검색</button>
         </form>
+
+        {message && (
+          <div className={`notice ${message.kind === 'error' ? 'notice-error' : 'notice-success'}`} role="status" style={{ marginTop: 12 }}>
+            {message.text}
+          </div>
+        )}
+
+        {results && (
+          <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 8 }}>
+            {results.length === 0 && (
+              <li className="notice notice-info">검색 결과가 없어요.</li>
+            )}
+            {results.map((r) => (
+              <li key={r.user_id} className="info-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <strong className="truncate" style={{ display: 'block' }}>{r.company_name || r.display_name || '회원'}</strong>
+                  {r.company_name && r.display_name && (
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.display_name}</span>
+                  )}
+                </div>
+                {r.relation === 'friend' && r.thread_id ? (
+                  <Link href={`/dashboard/chat/${r.thread_id}`} className="btn btn-primary">대화하기</Link>
+                ) : r.relation === 'none' ? (
+                  <button type="button" className="btn btn-primary" onClick={() => request(r)} disabled={busy}>친구 신청</button>
+                ) : r.relation === 'sent' ? (
+                  <span className="pill">신청 중</span>
+                ) : r.relation === 'received' ? (
+                  <Link href="/dashboard/chat" className="btn btn-ghost">받은 신청 보기</Link>
+                ) : (
+                  <span className="pill">신청 불가</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </main>
   )
