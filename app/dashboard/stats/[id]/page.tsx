@@ -106,10 +106,12 @@ export default function FlipbookStatsPage() {
   const [leadOn, setLeadOn] = useState(false)
   const [leadCount, setLeadCount] = useState(0)
   const [leadBusy, setLeadBusy] = useState(false)
+  const [quoteOn, setQuoteOn] = useState(false)
+  const [quoteCount, setQuoteCount] = useState(0)
 
   const load = useCallback(async () => {
-    const [book, views, leads] = await Promise.all([
-      supabase.from('flipbooks').select('title, page_count, views, lead_form').eq('id', id).maybeSingle(),
+    const [book, views, leads, quotes] = await Promise.all([
+      supabase.from('flipbooks').select('title, page_count, views, lead_form, quote_form').eq('id', id).maybeSingle(),
       supabase
         .from('flipbook_views')
         .select('id, session_id, page_no, dwell_ms, viewed_at, user_agent, src')
@@ -118,6 +120,10 @@ export default function FlipbookStatsPage() {
         .limit(5000),
       supabase
         .from('flipbook_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('flipbook_id', id),
+      supabase
+        .from('quote_requests')
         .select('id', { count: 'exact', head: true })
         .eq('flipbook_id', id),
     ])
@@ -131,6 +137,8 @@ export default function FlipbookStatsPage() {
     setTotalViews(book.data.views ?? 0)
     setLeadOn(book.data.lead_form === true)
     setLeadCount(leads.count ?? 0)
+    setQuoteOn(book.data.quote_form === true)
+    setQuoteCount(quotes.count ?? 0)
     setRows((views.data as ViewRow[]) ?? [])
     setUpdatedAt(new Date())
   }, [id])
@@ -223,6 +231,15 @@ export default function FlipbookStatsPage() {
     if (!error) setLeadOn(next)
   }
 
+  const toggleQuote = async () => {
+    if (leadBusy) return
+    const next = !quoteOn
+    setLeadBusy(true)
+    const { error } = await supabase.from('flipbooks').update({ quote_form: next }).eq('id', id)
+    setLeadBusy(false)
+    if (!error) setQuoteOn(next)
+  }
+
   if (loading) {
     return (
       <main className="container section">
@@ -290,6 +307,21 @@ export default function FlipbookStatsPage() {
           </button>
           <Link href={`/dashboard/leads/${id}`} className="btn btn-ghost">
             받은 리드 {leadCount.toLocaleString()}명 보기
+          </Link>
+        </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="quote-card-title">
+        <h2 className="panel-title" id="quote-card-title" style={{ fontSize: 16 }}>견적 요청</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          켜면 열람 중 상품과 수량을 적어 견적을 요청할 수 있어요. 요청은 1년 뒤 자동 삭제돼요.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className={quoteOn ? 'btn btn-primary' : 'btn btn-ghost'} onClick={toggleQuote} disabled={leadBusy}>
+            {quoteOn ? '요청 받기 켜짐 · 끄기' : '요청 받기 꺼짐 · 켜기'}
+          </button>
+          <Link href={`/dashboard/quotes/${id}`} className="btn btn-ghost">
+            받은 요청 {quoteCount.toLocaleString()}건 보기
           </Link>
         </div>
       </section>

@@ -6,6 +6,7 @@ import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
 import LeadSheet, { leadDone } from './lead-sheet'
+import QuoteSheet from './quote-sheet'
 
 // One id per page load (one visit). Lets the owner group rows into visits.
 let cachedVisitId: string | null = null
@@ -124,6 +125,8 @@ export default function Viewer({ flipbook, pages }: Props) {
     leadAsked.current = true
     setLeadOpen(true)
   }, [pageIdx, flipbook.lead_form, flipbook.id])
+  // Quote request: opened from the top bar when the publisher turned it on.
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const dismissNotice = () => {
     try {
       localStorage.setItem(NOTICE_KEY, '1')
@@ -427,6 +430,11 @@ export default function Viewer({ flipbook, pages }: Props) {
               ← 목록
             </a>
           )}
+          {flipbook.quote_form && (
+            <button type="button" className="btn btn-dark viewer-pill" onClick={() => setQuoteOpen(true)}>
+              견적 요청
+            </button>
+          )}
           {hasPages && (
             <button
               type="button"
@@ -458,6 +466,9 @@ export default function Viewer({ flipbook, pages }: Props) {
           ))}
         </div>
       </header>
+      {quoteOpen && (
+        <QuoteSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setQuoteOpen(false)} />
+      )}
       {leadOpen && (
         <LeadSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setLeadOpen(false)} />
       )}

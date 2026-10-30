@@ -2429,3 +2429,213 @@ create policy flipbook_files_delete_team on storage.objects for delete to authen
   using (bucket_id = 'flipbook-files' and can_manage_storage_path(name));
 
 notify pgrst, 'reload schema';
+
+-- 34. Quote requests and CRM webhooks (v34) ---------------------------------
+
+-- ── Quote requests ─────────────────────────────────────────────
+alter table flipbooks add column if not exists quote_form boolean not null default false;
+
+create table if not exists quote_requests (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 40),
+  contact text not null check (char_length(contact) between 5 and 120),
+  company text check (company is null or char_length(company) <= 60),
+  memo text not null check (char_length(memo) between 1 and 1000),
+  status text not null default 'new' check (status in ('new', 'done')),
+  session_id text,
+  created_at timestamptz not null default now()
+);
+create index if not exists quote_requests_fb_idx on quote_requests (flipbook_id, created_at);
+
+alter table quote_requests enable row level security;
+
+drop policy if exists quote_requests_manage_select on quote_requests;
+create policy quote_requests_manage_select on quote_requests for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+drop policy if exists quote_requests_manage_update on quote_requests;
+create policy quote_requests_manage_update on quote_requests for update to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+drop policy if exists quote_requests_manage_delete on quote_requests;
+create policy quote_requests_manage_delete on quote_requests for delete to authenticated
+  using (can_manage_flipbook(flipbook_id));
+
+create or replace function submit_quote_request(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text, p_session text
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := btrim(coalesce(p_memo, ''));
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.quote_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 견적 요청을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if char_length(v_memo) not between 1 and 1000 then raise exception '요청 내용을 입력해 주세요'; end if;
+  if v_company is not null and char_length(v_company) > 60 then raise exception '회사명이 너무 길어요'; end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if exists (select 1 from quote_requests where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from quote_requests
+       where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+  insert into quote_requests (flipbook_id, owner_id, name, contact, company, memo, session_id)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, p_session);
+end $$;
+
+revoke all on function submit_quote_request(uuid, text, text, text, text, text) from public;
+grant execute on function submit_quote_request(uuid, text, text, text, text, text) to anon, authenticated;
+
+-- Retention: leads and quote requests are both kept 1 year.
+create or replace function purge_old_leads()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from flipbook_leads where created_at < now() - interval '365 days';
+  get diagnostics v_deleted = row_count;
+  delete from quote_requests where created_at < now() - interval '365 days';
+  return v_deleted;
+end $$;
+
+-- get_flipbook also reports quote_form now.
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean,
+  lead_form boolean, quote_form boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null, f.lead_form, f.quote_form
+  from flipbooks f
+  where f.slug = p_slug and f.is_public
+    and (f.expires_at is null or f.expires_at > now())
+  limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+
+-- ── Webhooks (CRM, 1단계) ───────────────────────────────────────
+create table if not exists webhook_endpoints (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  url text not null check (char_length(url) <= 500 and url like 'https://%'),
+  secret text not null,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists webhook_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  endpoint_id uuid not null references webhook_endpoints(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  event text not null,
+  payload jsonb not null,
+  status text not null default 'pending' check (status in ('pending', 'delivered', 'failed')),
+  attempts int not null default 0,
+  next_attempt_at timestamptz not null default now(),
+  last_code int,
+  last_error text,
+  created_at timestamptz not null default now(),
+  delivered_at timestamptz
+);
+create index if not exists webhook_deliveries_due_idx on webhook_deliveries (status, next_attempt_at);
+create index if not exists webhook_deliveries_user_idx on webhook_deliveries (user_id, created_at);
+
+alter table webhook_endpoints enable row level security;
+alter table webhook_deliveries enable row level security;
+
+drop policy if exists webhook_endpoints_owner on webhook_endpoints;
+create policy webhook_endpoints_owner on webhook_endpoints for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Only the owner reads delivery logs. Owners may add a test ping (event 'ping') themselves.
+drop policy if exists webhook_deliveries_owner_select on webhook_deliveries;
+create policy webhook_deliveries_owner_select on webhook_deliveries for select to authenticated
+  using (user_id = auth.uid());
+drop policy if exists webhook_deliveries_owner_ping on webhook_deliveries;
+create policy webhook_deliveries_owner_ping on webhook_deliveries for insert to authenticated
+  with check (
+    user_id = auth.uid() and event = 'ping'
+    and exists (select 1 from webhook_endpoints e where e.id = endpoint_id and e.user_id = auth.uid())
+  );
+
+-- Up to 5 endpoints per owner.
+create or replace function enforce_webhook_endpoint_limit()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if (select count(*) from webhook_endpoints where user_id = new.user_id) >= 5 then
+    raise exception '연동 주소는 5개까지 등록할 수 있어요';
+  end if;
+  return new;
+end $$;
+drop trigger if exists webhook_endpoint_limit on webhook_endpoints;
+create trigger webhook_endpoint_limit before insert on webhook_endpoints
+  for each row execute function enforce_webhook_endpoint_limit();
+
+-- New lead or quote request → one pending delivery per enabled endpoint.
+create or replace function queue_lead_webhooks()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into webhook_deliveries (endpoint_id, user_id, event, payload)
+  select e.id, e.user_id, 'lead.created',
+         jsonb_build_object(
+           'event', 'lead.created',
+           'created_at', new.created_at,
+           'flipbook', jsonb_build_object('id', f.id, 'title', f.title),
+           'lead', jsonb_build_object('name', new.name, 'contact', new.contact,
+                                      'marketing_consent', new.marketing_consent))
+  from webhook_endpoints e
+  join flipbooks f on f.id = new.flipbook_id
+  where e.user_id = new.owner_id and e.enabled;
+  return new;
+end $$;
+
+create or replace function queue_quote_webhooks()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into webhook_deliveries (endpoint_id, user_id, event, payload)
+  select e.id, e.user_id, 'quote.requested',
+         jsonb_build_object(
+           'event', 'quote.requested',
+           'created_at', new.created_at,
+           'flipbook', jsonb_build_object('id', f.id, 'title', f.title),
+           'quote', jsonb_build_object('name', new.name, 'contact', new.contact,
+                                       'company', new.company, 'memo', new.memo))
+  from webhook_endpoints e
+  join flipbooks f on f.id = new.flipbook_id
+  where e.user_id = new.owner_id and e.enabled;
+  return new;
+end $$;
+
+drop trigger if exists flipbook_leads_webhook on flipbook_leads;
+create trigger flipbook_leads_webhook after insert on flipbook_leads
+  for each row execute function queue_lead_webhooks();
+drop trigger if exists quote_requests_webhook on quote_requests;
+create trigger quote_requests_webhook after insert on quote_requests
+  for each row execute function queue_quote_webhooks();
+
+notify pgrst, 'reload schema';

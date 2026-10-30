@@ -71,6 +71,8 @@ export default function LeadSheet({ flipbookId, session, onClose }: Props) {
     }
     setSent(true)
     markLeadDone(flipbookId)
+    // Let the publisher's CRM hear about it now (retries and failures are handled on the server).
+    fetch('/api/webhooks/dispatch', { method: 'POST', keepalive: true }).catch(() => undefined)
   }
 
   const canSend = name.trim().length > 0 && contact.trim().length > 0 && agree && !busy
