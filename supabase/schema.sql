@@ -296,23 +296,6 @@ end $$;
 revoke all on function record_view(uuid, text, int, int, text) from public;
 grant execute on function record_view(uuid, text, int, int, text) to anon, authenticated;
 
--- 5b. Originals live in a PRIVATE bucket. The public never gets a permanent link;
---     /api/original/... issues a signed link that expires in 10 minutes.
-insert into storage.buckets (id, name, public)
-values ('flipbook-originals', 'flipbook-originals', false)
-on conflict (id) do nothing;
-
-drop policy if exists originals_insert on storage.objects;
-create policy originals_insert on storage.objects for insert to authenticated
-  with check (bucket_id = 'flipbook-originals');
-drop policy if exists originals_update_own on storage.objects;
-create policy originals_update_own on storage.objects for update to authenticated
-  using (bucket_id = 'flipbook-originals' and owner = auth.uid());
-drop policy if exists originals_delete_own on storage.objects;
-create policy originals_delete_own on storage.objects for delete to authenticated
-  using (bucket_id = 'flipbook-originals' and owner = auth.uid());
-notify pgrst, 'reload schema';
-
 -- 6. Link on/off (v6) ---------------------------------------------------
 -- The owner can switch a catalog's public link off. get_flipbook returns nothing for it,
 -- so the viewer page shows "not found" and the page list (which needs the flipbook id) stays hidden.
