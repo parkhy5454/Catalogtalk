@@ -14,7 +14,7 @@ import Viewer from './viewer'
 // Per-visitor unlock cookie decides what is rendered, so this page must never be shared-cached.
 export const dynamic = 'force-dynamic'
 
-type Props = { params: { slug: string } }
+type Props = { params: Promise<{ slug: string }> }
 
 function decodeSlug(raw: string) {
   try {
@@ -44,7 +44,7 @@ async function loadPages(flipbookId: string): Promise<PageImage[]> {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const slug = decodeSlug(params.slug)
+  const slug = decodeSlug((await params).slug)
   const fb = await loadFlipbook(slug)
   if (!fb) {
     return { title: '플립북을 찾을 수 없어요', robots: { index: false, follow: false } }
@@ -79,7 +79,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function ViewerPage({ params }: Props) {
-  const slug = decodeSlug(params.slug)
+  const slug = decodeSlug((await params).slug)
   const fb = await loadFlipbook(slug)
   if (!fb) {
     return (
@@ -93,7 +93,7 @@ export default async function ViewerPage({ params }: Props) {
   }
 
   if (fb.has_password) {
-    const token = cookies().get(cookieName(slug))?.value
+    const token = (await cookies()).get(cookieName(slug))?.value
     if (!(await isFlipbookUnlocked(slug, token))) {
       return <FlipbookPasswordGate slug={slug} title={fb.title} />
     }

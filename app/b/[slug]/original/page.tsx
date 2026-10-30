@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const PDFJS_VERSION = '3.11.174'
-const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
+// Served from this site (public/vendor/pdfjs), the same version as the library.
+const PDFJS_BASE = '/vendor/pdfjs'
 const DOCX_RE = /\.docx(\?|$)/i
 
 type Book = { title: string; slug: string; pdf_url: string | null }
@@ -37,13 +37,14 @@ export default function OriginalPage() {
     ;(async () => {
       try {
         setStatus('원본을 불러오는 중...')
-        const pdfjs = await import('pdfjs-dist/build/pdf')
-        pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`
+        const pdfjs = await import('pdfjs-dist/build/pdf.mjs')
+        pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`
         const doc = await pdfjs.getDocument({
           url: pdfUrl,
           cMapUrl: `${PDFJS_BASE}/cmaps/`,
           cMapPacked: true,
           standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
+          wasmUrl: `${PDFJS_BASE}/wasm/`,
         }).promise
         const width = Math.min(holder.current?.clientWidth || window.innerWidth, 1000)
         for (let n = 1; n <= doc.numPages; n++) {
@@ -59,7 +60,7 @@ export default function OriginalPage() {
           canvas.style.marginBottom = '10px'
           const ctx = canvas.getContext('2d')
           if (!ctx) throw new Error('화면을 그릴 수 없어요')
-          await page.render({ canvasContext: ctx, viewport: vp }).promise
+          await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise
           holder.current?.appendChild(canvas)
           setStatus(`${n} / ${doc.numPages}쪽`)
         }

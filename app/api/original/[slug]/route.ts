@@ -21,12 +21,12 @@ function decodeSlug(raw: string) {
   }
 }
 
-export async function GET(_req: Request, { params }: { params: { slug: string } }) {
-  const slug = decodeSlug(params.slug)
+export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const slug = decodeSlug((await params).slug)
   const { data, error } = await createAnonClient().rpc('get_flipbook', { p_slug: slug })
   const row = Array.isArray(data) ? data[0] : null
   if (error || !row?.pdf_url) return new NextResponse('Not found', { status: 404, headers: noStore })
-  if (row.has_password && !(await isFlipbookUnlocked(slug, cookies().get(cookieName(slug))?.value))) {
+  if (row.has_password && !(await isFlipbookUnlocked(slug, (await cookies()).get(cookieName(slug))?.value))) {
     return new NextResponse('Password required', { status: 403, headers: noStore })
   }
 
