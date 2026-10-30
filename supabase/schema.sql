@@ -433,3 +433,13 @@ as $$
 $$;
 grant execute on function get_flipbook(text) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- 12. Password attempt limit (v12) --------------------------------------
+-- Counts wrong viewer-password tries per catalog and visitor address. Only the server
+-- (service role) reads or writes it, so RLS is on with no policies.
+create table if not exists unlock_attempts (
+  key text primary key,
+  fails int not null default 0,
+  locked_until timestamptz
+);
+alter table unlock_attempts enable row level security;

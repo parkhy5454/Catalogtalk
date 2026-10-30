@@ -256,3 +256,50 @@ export async function deleteFlipbook(supabase: SupabaseClient, fb: FlipbookRow):
     }
   }
 }
+
+/**
+ * Move an older catalog (public files) into the private bucket: re-render its pages there,
+ * copy the original, then remove the public copies. Run by the owner from My Book.
+ */
+export async function migrateToPrivate(
+  supabase: SupabaseClient,
+  fb: FlipbookRow,
+  render: Render,
+  onStatus: (text: string, progress: number) => void
+): Promise<void> {
+  if (!fb.pdf_url || isPrivateRef(fb.pdf_url)) return
+  const oldUrl = fb.pdf_url
+  const kind: SourceKind = /\.docx(\?|$)/i.test(oldUrl) ? 'docx' : 'pdf'
+
+  // 1. Read the original first, while the public copy still exists.
+  onStatus('원본 확인 중...', 0)
+  const res = await fetch(oldUrl)
+  if (!res.ok) throw new Error('원본 파일을 불러오지 못했어요')
+  const original = await res.blob()
+
+  // 2. Pages and thumbnail into the private bucket (convertExisting updates the page rows).
+  await convertExisting(supabase, fb, render, (text, p) => onStatus(text, p * 0.9))
+
+  // 3. Copy the original into the private bucket and point the catalog at it.
+  onStatus('원본 옮기는 중...', 0.92)
+  const path = `${fb.id}/original-${crypto.randomUUID().replace(/-/g, '')}.${kind}`
+  const { error: upErr } = await supabase.storage.from(PRIVATE_BUCKET).upload(path, new Blob([original], { type: SOURCE_MIME[kind] }), {
+    contentType: SOURCE_MIME[kind],
+    cacheControl: ASSET_CACHE,
+    upsert: false,
+  })
+  if (upErr) throw new Error(`원본 옮기기 실패: ${upErr.message}`)
+  const { error: updErr } = await supabase.from('flipbooks').update({ pdf_url: PRIVATE_PREFIX + path }).eq('id', fb.id)
+  if (updErr) throw updErr
+
+  // 4. Remove public copies: the old slug folder and the legacy root-level original.
+  onStatus('이전 공개 파일 정리 중...', 0.97)
+  const paths = await listFolder(supabase, fb.slug, PUBLIC_BUCKET)
+  const legacy = pathFromPublicUrl(oldUrl)
+  if (legacy) paths.push(legacy)
+  const unique = paths.filter((p, i) => paths.indexOf(p) === i)
+  if (unique.length > 0) {
+    await supabase.storage.from(PUBLIC_BUCKET).remove(unique).catch(() => undefined)
+  }
+  onStatus('완료!', 1)
+}

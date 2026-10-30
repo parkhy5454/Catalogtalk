@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { copyText } from '@/lib/clipboard'
 import {
   convertExisting,
+  migrateToPrivate,
   deleteFlipbook,
   type FlipbookRow,
 } from '@/lib/flipbook/upload'
@@ -29,6 +30,10 @@ async function renderDocx(buf: ArrayBuffer, onPage: (d: number, t: number) => vo
 // The stored original decides the converter (.docx originals keep their extension in storage).
 function rendererForUrl(url: string | null) {
   return /\.docx(\?|$)/i.test(url ?? '') ? renderDocx : renderPdf
+}
+
+function needsConvertOf(fb: { page_count: number }) {
+  return !fb.page_count
 }
 
 function friendlyError(err: unknown): string {
@@ -216,6 +221,32 @@ export default function MyBookPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleMigrate = async (fb: FlipbookRow) => {
+    if (busy || !userId) return
+    const ok = window.confirm(
+      `"${fb.title}"을(를) 비공개 저장소로 옮길까요?\n링크와 보기 화면은 그대로 유지돼요. 옮기는 동안 시간이 조금 걸려요.`
+    )
+    if (!ok) return
+    setBusy(true)
+    setConvertingId(fb.id)
+    setMessage(null)
+    try {
+      await migrateToPrivate(supabase, fb, rendererForUrl(fb.pdf_url), (text, p) => {
+        setStatus(text)
+        setProgress(Math.round(p * 100))
+      })
+      await fetchFlipbooks(userId)
+      setMessage({ kind: 'success', text: `"${fb.title}" 비공개 저장소로 옮겼어요` })
+    } catch (err) {
+      setMessage({ kind: 'error', text: friendlyError(err) })
+    } finally {
+      setBusy(false)
+      setConvertingId(null)
+      setStatus('')
+      setProgress(0)
+    }
+  }
 
   const handleConvert = async (fb: FlipbookRow) => {
     if (busy || !userId) return
@@ -567,6 +598,11 @@ export default function MyBookPage() {
                       <button type="button" className="btn btn-ghost" onClick={() => toggleShare(fb)}>
                         {fb.is_public ? '링크 끄기' : '링크 켜기'}
                       </button>
+                      {!needsConvertOf(fb) && fb.pdf_url && !fb.pdf_url.startsWith('private:') && (
+                        <button type="button" className="btn btn-ghost" onClick={() => handleMigrate(fb)} disabled={busy}>
+                          비공개로 옮기기
+                        </button>
+                      )}
                       <button type="button" className="btn btn-ghost" onClick={() => handlePassword(fb)}>
                         {fb.has_password ? '비밀번호 해제' : '비밀번호 설정'}
                       </button>
