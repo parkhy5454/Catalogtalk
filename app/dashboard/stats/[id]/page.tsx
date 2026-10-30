@@ -375,6 +375,7 @@ export default function FlipbookStatsPage() {
           <Link href={`/dashboard/products/${id}`} className="btn btn-ghost">상품 관리</Link>
           <Link href={`/dashboard/orders/${id}`} className="btn btn-ghost">주문 요청 보기</Link>
           <Link href={`/dashboard/qr/${id}`} className="btn btn-ghost">QR 코드</Link>
+          <Link href={`/dashboard/campaigns/${id}`} className="btn btn-ghost">자동 리마인드·캠페인</Link>
         </div>
       </section>
 

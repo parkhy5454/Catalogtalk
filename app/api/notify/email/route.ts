@@ -66,11 +66,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '이메일로 받을 수 있는 동의자가 없어요' }, { status: 400 })
   }
 
-  const catalogUrl = `${SITE_URL}/b/${book.slug}`
   const html = (token: string) =>
     `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#111">` +
     `<p>${esc(message).replace(/\n/g, '<br>')}</p>` +
-    `<p><a href="${catalogUrl}">${esc(book.title)} 보러 가기</a></p>` +
+    `<p><a href="${SITE_URL}/api/mail/click?t=${token}&k=notice">${esc(book.title)} 보러 가기</a></p>` +
     `<hr style="border:none;border-top:1px solid #eee;margin:24px 0">` +
     `<p style="font-size:12px;color:#777">이 메일은 ${esc(book.title)} 자료를 보신 분 중 소식 수신에 동의하신 분께 보내드려요. ` +
     `더 받고 싶지 않으시면 <a href="${SITE_URL}/api/unsubscribe?t=${token}">수신거부</a>를 눌러 주세요. (${SITE_NAME})</p></div>`
