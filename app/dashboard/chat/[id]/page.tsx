@@ -362,11 +362,14 @@ export default function ChatThreadPage() {
                 {m.body && (
                   <div
                     style={{
-                      padding: '8px 12px',
-                      borderRadius: 12,
-                      background: mine ? 'var(--ink, #111)' : '#fff',
-                      color: mine ? '#fff' : 'inherit',
-                      border: mine ? 'none' : '1px solid var(--line, #e5e5e5)',
+                      padding: '10px 14px',
+                      fontSize: 15,
+                      lineHeight: 1.5,
+                      borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                      background: mine ? 'var(--yellow, #FFE100)' : '#fff',
+                      color: 'var(--ink, #111)',
+                      border: mine ? '1px solid rgba(0,0,0,0.06)' : '1px solid var(--line, #e5e5e5)',
+                      boxShadow: mine ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
                     }}
