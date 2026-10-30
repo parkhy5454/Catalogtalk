@@ -1794,3 +1794,64 @@ alter table chat_reports add constraint chat_reports_status_check check (status 
 alter table chat_reports add column if not exists handled_at timestamptz;
 create index if not exists chat_reports_status_idx on chat_reports (status, created_at desc);
 notify pgrst, 'reload schema';
+
+-- 27. Rate limits against spam (v27) ---------------------------------------
+-- Generous limits that normal use never reaches. Friend requests are limited per hour, not per day.
+-- Messages: 300 per member per hour. Friend additions: 30 per member per hour.
+create index if not exists chat_messages_sender_time_idx on chat_messages (sender_id, created_at desc);
+
+create or replace function enforce_message_rate()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if (select count(*) from chat_messages m
+       where m.sender_id = new.sender_id and m.created_at > now() - interval '1 hour') >= 300 then
+    raise exception 'RATE_LIMIT: 메시지를 너무 많이 보냈어요. 잠시 후 다시 보내 주세요';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists chat_messages_rate on chat_messages;
+create trigger chat_messages_rate
+  before insert on chat_messages
+  for each row execute function enforce_message_rate();
+
+create or replace function send_friend_request(p_to uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_to = me then raise exception '자기 자신과는 친구가 될 수 없어요'; end if;
+  if not exists (select 1 from customers where user_id = p_to and discoverable) or is_blocked_between(me, p_to) then
+    raise exception '이 회원을 추가할 수 없어요';
+  end if;
+
+  select t.id into tid from chat_threads t
+    where t.user_a = least(me, p_to) and t.user_b = greatest(me, p_to);
+  if tid is not null then return tid; end if;
+
+  if (select count(*) from chat_friend_requests r
+        where r.from_id = me and r.responded_at > now() - interval '1 hour') >= 30 then
+    raise exception 'RATE_LIMIT: 친구 추가를 너무 많이 했어요. 잠시 후 다시 시도해 주세요';
+  end if;
+
+  insert into chat_friend_requests (from_id, to_id, status, responded_at)
+  values (me, p_to, 'accepted', now())
+  on conflict (from_id, to_id) do update set status = 'accepted', responded_at = now();
+
+  insert into chat_threads (user_a, user_b)
+  values (least(me, p_to), greatest(me, p_to))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+
+grant execute on function send_friend_request(uuid) to authenticated;
+notify pgrst, 'reload schema';
