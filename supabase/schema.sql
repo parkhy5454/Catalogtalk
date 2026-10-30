@@ -1524,3 +1524,197 @@ grant execute on function get_my_read_receipts() to authenticated;
 grant execute on function set_read_receipts(boolean) to authenticated;
 grant execute on function get_read_status(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 24. Recommendations, blocking, company-first search (v24) ----------------
+-- Blocking is two-way: neither side can message, add, or see the other in lists.
+-- Blocked 1:1 rooms disappear from both lists; history stays in the database.
+
+create or replace function recommend_members()
+returns table (user_id uuid, display_name text, company_name text)
+language sql stable security definer set search_path = public
+as $$
+  select c.user_id, coalesce(c.company_name, c.name), c.company_name
+  from customers c
+  where auth.uid() is not null
+    and c.discoverable
+    and c.user_id <> auth.uid()
+    and not is_blocked_between(c.user_id, auth.uid())
+    and not exists (
+      select 1 from chat_threads t
+      where not t.is_group and t.user_a = least(auth.uid(), c.user_id) and t.user_b = greatest(auth.uid(), c.user_id)
+    )
+  order by c.created_at desc
+  limit 10
+$$;
+
+create or replace function block_user(p_user uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요해요'; end if;
+  if p_user = auth.uid() then raise exception '자기 자신은 차단할 수 없어요'; end if;
+  insert into chat_blocks (blocker_id, blocked_id) values (auth.uid(), p_user)
+  on conflict (blocker_id, blocked_id) do nothing;
+end;
+$$;
+
+create or replace function unblock_user(p_user uuid)
+returns void
+language sql security definer set search_path = public
+as $$
+  delete from chat_blocks where blocker_id = auth.uid() and blocked_id = p_user
+$$;
+
+create or replace function list_blocked_users()
+returns table (user_id uuid, display_name text)
+language sql stable security definer set search_path = public
+as $$
+  select b.blocked_id, coalesce(c.company_name, c.name)
+  from chat_blocks b
+  left join customers c on c.user_id = b.blocked_id
+  where b.blocker_id = auth.uid()
+  order by b.created_at desc
+$$;
+
+-- Company-name matches first.
+create or replace function search_members(p_query text)
+returns table (user_id uuid, display_name text, company_name text, relation text, thread_id uuid)
+language sql stable security definer set search_path = public
+as $$
+  select
+    c.user_id,
+    coalesce(c.company_name, c.name),
+    c.company_name,
+    case
+      when exists (select 1 from chat_threads t where (t.user_a = least(auth.uid(), c.user_id) and t.user_b = greatest(auth.uid(), c.user_id))) then 'friend'
+      when exists (select 1 from chat_friend_requests r where r.from_id = auth.uid() and r.to_id = c.user_id and r.status = 'pending') then 'sent'
+      when exists (select 1 from chat_friend_requests r where r.from_id = c.user_id and r.to_id = auth.uid() and r.status = 'pending') then 'received'
+      when exists (select 1 from chat_friend_requests r where r.from_id = auth.uid() and r.to_id = c.user_id and r.status = 'rejected') then 'rejected'
+      else 'none'
+    end,
+    (select t.id from chat_threads t where t.user_a = least(auth.uid(), c.user_id) and t.user_b = greatest(auth.uid(), c.user_id))
+  from customers c
+  where auth.uid() is not null
+    and c.discoverable
+    and c.user_id <> auth.uid()
+    and char_length(trim(p_query)) >= 2
+    and (c.company_name ilike '%' || trim(p_query) || '%' or c.name ilike '%' || trim(p_query) || '%')
+    and not is_blocked_between(c.user_id, auth.uid())
+  order by (c.company_name ilike '%' || trim(p_query) || '%') desc, coalesce(c.company_name, c.name)
+  limit 20
+$$;
+
+create or replace function send_friend_request(p_to uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_to = me then raise exception '자기 자신과는 친구가 될 수 없어요'; end if;
+  if not exists (select 1 from customers where user_id = p_to and discoverable) or is_blocked_between(me, p_to) then
+    raise exception '이 회원을 추가할 수 없어요';
+  end if;
+
+  select t.id into tid from chat_threads t
+    where t.user_a = least(me, p_to) and t.user_b = greatest(me, p_to);
+  if tid is not null then return tid; end if;
+
+  insert into chat_friend_requests (from_id, to_id, status, responded_at)
+  values (me, p_to, 'accepted', now())
+  on conflict (from_id, to_id) do update set status = 'accepted', responded_at = now();
+
+  insert into chat_threads (user_a, user_b)
+  values (least(me, p_to), greatest(me, p_to))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+
+create or replace function list_my_friends()
+returns table (user_id uuid, display_name text)
+language sql stable security definer set search_path = public
+as $$
+  select
+    case when t.user_a = auth.uid() then t.user_b else t.user_a end,
+    (select coalesce(c.company_name, c.name) from customers c
+      where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end)
+  from chat_threads t
+  where not t.is_group
+    and (t.user_a = auth.uid() or t.user_b = auth.uid())
+    and not is_blocked_between(t.user_a, t.user_b)
+  order by 2
+$$;
+
+drop policy if exists chat_messages_member_insert on chat_messages;
+create policy chat_messages_member_insert on chat_messages for insert to authenticated
+  with check (
+    sender_id = auth.uid()
+    and is_business_user(auth.uid())
+    and is_thread_member(thread_id, auth.uid())
+    and not exists (
+      select 1 from chat_threads t
+      where t.id = thread_id and not t.is_group and is_blocked_between(t.user_a, t.user_b)
+    )
+    and (catalog_slug is null or exists (
+      select 1 from flipbooks f where f.slug = catalog_slug and f.user_id = auth.uid()
+    ))
+  );
+
+drop function if exists list_chat_threads();
+create function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text, alias text,
+  last_message_at timestamptz, last_body text, unread int, pinned boolean, is_group boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.is_group then null else case when t.user_a = auth.uid() then t.user_b else t.user_a end end,
+    case when t.is_group then coalesce(t.title, (
+      select string_agg(x.n, ', ') from (
+        select coalesce(c.company_name, c.name) as n from chat_members m
+          join customers c on c.user_id = m.user_id
+         where m.thread_id = t.id and m.left_at is null and m.user_id <> auth.uid()
+         limit 3) x))
+    else (select coalesce(c.company_name, c.name) from customers c
+            where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end)
+    end,
+    (select p.alias from chat_thread_prefs p where p.user_id = auth.uid() and p.thread_id = t.id),
+    t.last_message_at,
+    (select case when m.body <> '' then m.body else '[카탈로그] ' || coalesce(m.catalog_title, '') end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz)),
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()),
+    t.is_group
+  from chat_threads t
+  where is_thread_member(t.id, auth.uid())
+    and not (not t.is_group and is_blocked_between(t.user_a, t.user_b))
+    and not exists (
+      select 1 from chat_thread_prefs p
+      where p.thread_id = t.id and p.user_id = auth.uid()
+        and p.hidden_at is not null and t.last_message_at <= p.hidden_at
+    )
+  order by
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()) desc,
+    t.last_message_at desc
+$$;
+
+grant execute on function recommend_members() to authenticated;
+grant execute on function block_user(uuid) to authenticated;
+grant execute on function unblock_user(uuid) to authenticated;
+grant execute on function list_blocked_users() to authenticated;
+grant execute on function search_members(text) to authenticated;
+grant execute on function send_friend_request(uuid) to authenticated;
+grant execute on function list_my_friends() to authenticated;
+grant execute on function list_chat_threads() to authenticated;
+notify pgrst, 'reload schema';

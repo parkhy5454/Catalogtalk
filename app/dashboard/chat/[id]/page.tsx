@@ -241,6 +241,15 @@ export default function ChatThreadPage() {
     await loadMembers()
   }
 
+  const blockPartner = async () => {
+    if (!partner?.id) return
+    const ok = window.confirm('이 회원을 차단할까요?\n서로 메시지를 보낼 수 없고, 목록에서도 사라져요. 차단 해제는 설정 > 차단한 회원에서 할 수 있어요.')
+    if (!ok) return
+    const { error: blockErr } = await supabase.rpc('block_user', { p_user: partner.id })
+    if (blockErr) return setError('차단하지 못했어요')
+    router.push('/dashboard/chat')
+  }
+
   const leave = async () => {
     const ok = isGroup
       ? window.confirm('이 단체 대화방에서 나갈까요?\n나가면 대화 내용이 보이지 않아요. 다른 사람에게는 알리지 않아요.')
@@ -289,6 +298,9 @@ export default function ChatThreadPage() {
           <button type="button" className="btn btn-ghost" onClick={openInvite} aria-expanded={inviteOpen}>초대</button>
         )}
         <button type="button" className="btn btn-ghost" onClick={rename}>이름</button>
+        {!isGroup && partner?.id && (
+          <button type="button" className="btn btn-ghost" onClick={blockPartner}>차단</button>
+        )}
         <button type="button" className="btn btn-ghost" onClick={leave}>나가기</button>
         <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
           {pinned ? '고정 해제' : '고정'}

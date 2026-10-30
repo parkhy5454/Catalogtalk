@@ -25,14 +25,29 @@ export default function FindFriendsPage() {
   const [friends, setFriends] = useState<Friend[] | null>(null)
   const [picked, setPicked] = useState<string[]>([])
   const [groupTitle, setGroupTitle] = useState('')
+  const [recs, setRecs] = useState<Friend[] | null>(null)
 
   useEffect(() => {
     ;(async () => {
       const { data, error } = await supabase.rpc('list_my_friends')
       setFriends(error ? [] : ((data as Friend[]) ?? []))
+      const { data: rec } = await supabase.rpc('recommend_members')
+      setRecs((rec as Friend[]) ?? [])
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const addRecommended = async (userId: string) => {
+    setBusy(true)
+    setMessage(null)
+    const { data: threadId, error } = await supabase.rpc('send_friend_request', { p_to: userId })
+    setBusy(false)
+    if (error || !threadId) {
+      setMessage({ kind: 'error', text: error?.message ?? '친구를 추가하지 못했어요' })
+      return
+    }
+    router.push(`/dashboard/chat/${threadId}`)
+  }
 
   const togglePick = (id: string) => {
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -89,6 +104,25 @@ export default function FindFriendsPage() {
 
   return (
     <main className="container section">
+      {recs && recs.length > 0 && (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head">
+            <h2 className="panel-title" style={{ fontSize: 17 }}>최근 가입한 회원</h2>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            회원 검색에 나오기를 켠 최근 가입자 중 일부예요.
+          </p>
+          <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 8 }}>
+            {recs.map((r) => (
+              <li key={r.user_id} className="info-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span className="truncate">{r.display_name || '회원'}</span>
+                <button type="button" className="btn btn-primary" onClick={() => addRecommended(r.user_id)} disabled={busy}>친구 추가</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="panel">
         <div className="panel-head">
           <h1 className="panel-title">친구 찾기</h1>

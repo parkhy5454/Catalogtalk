@@ -114,6 +114,10 @@ export default function ChatListPage() {
               <span>{readReceipts ? '👀 읽음 표시: 켜짐' : '👀 읽음 표시: 꺼짐'}</span>
               <span aria-hidden="true">›</span>
             </button>
+            <Link href="/dashboard/chat/blocked" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'inherit', textDecoration: 'none' }}>
+              <span>🚫 차단한 회원 관리</span>
+              <span aria-hidden="true">›</span>
+            </Link>
           </div>
         )}
 
