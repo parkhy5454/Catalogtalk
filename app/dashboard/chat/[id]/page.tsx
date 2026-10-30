@@ -42,6 +42,8 @@ export default function ChatThreadPage() {
   const [invitePicked, setInvitePicked] = useState<string[]>([])
   const [inviteOpen, setInviteOpen] = useState(false)
   const [readers, setReaders] = useState<Reader[]>([])
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
 
@@ -172,6 +174,23 @@ export default function ChatThreadPage() {
       .eq('user_id', me)
       .order('created_at', { ascending: false })
     setCatalogs((data as Own[]) ?? [])
+  }
+
+  const saveCatalog = async (m: Msg) => {
+    setSavingId(m.id)
+    setError(null)
+    const res = await fetch('/api/chat/save-catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: m.id }),
+    })
+    setSavingId(null)
+    const body = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean }
+    if (!res.ok || !body.ok) {
+      setError(body.error ?? '저장하지 못했어요')
+      return
+    }
+    setSavedIds((prev) => new Set(prev).add(m.id))
   }
 
   const report = async (m: Msg) => {
@@ -363,6 +382,22 @@ export default function ChatThreadPage() {
                     return n > 0 ? <span style={{ fontWeight: 700 }}>{n}명 읽음</span> : null
                   })()}
                   <span>{timeOf(m.created_at)}</span>
+                  {!mine && m.catalog_slug && (
+                    savedIds.has(m.id) ? (
+                      <Link href="/dashboard/folders" style={{ fontSize: 11, color: 'var(--ink, #111)', fontWeight: 700 }}>
+                        내 목록에 저장됨
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => saveCatalog(m)}
+                        disabled={savingId !== null}
+                        style={{ fontSize: 11, color: 'var(--ink, #111)', fontWeight: 700, background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
+                      >
+                        {savingId === m.id ? '저장 중...' : '내 목록에 저장'}
+                      </button>
+                    )
+                  )}
                   {!mine && (
                     <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
                       신고
