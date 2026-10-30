@@ -1585,3 +1585,20 @@ body {
 }
 .landing .feature-card h3 { color: var(--ink); }
 .landing .feature-card p { color: rgba(17, 17, 17, 0.75); }
+
+/* Landing: usage flow and the seven feature cards */
+.landing .flow { margin: 48px auto 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.flow-step { width: 100%; max-width: 520px; background: #fff; color: #111; border: 2px solid #111; border-radius: 16px; padding: 18px 20px; text-align: center; box-shadow: 4px 4px 0 #111; }
+.flow-step h3 { font-size: 16px; margin: 4px 0 6px; }
+.flow-step p { font-size: 14px; color: rgba(17, 17, 17, 0.75); line-height: 1.5; margin: 0; }
+.flow-step--core { background: #111; color: #FFE500; }
+.flow-step--core p { color: rgba(255, 229, 0, 0.85); }
+.flow-icon { font-size: 22px; line-height: 1; }
+.flow-arrow { font-size: 18px; line-height: 1; color: #111; }
+.flow-split { width: 100%; max-width: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.flow-split .flow-step { max-width: none; padding: 16px 12px; }
+.flow-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.flow-tags span { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #FFE500; color: #111; }
+@media (min-width: 768px) {
+  .landing .feature-card--wide { grid-column: 1 / -1; }
+}
