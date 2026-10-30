@@ -10,6 +10,7 @@ const ORIGINALS_BUCKET = 'flipbook-originals'
 const SIGNED_SECONDS = 600
 const SLUG_RE = /^[a-z0-9-]{4,80}$/i
 const FILE_RE = /^original\.(pdf|docx)$/
+const NO_CACHE = { 'Cache-Control': 'no-store, max-age=0' }
 
 export async function GET(_req: Request, { params }: { params: { slug: string; file: string } }) {
   const { slug, file } = params
@@ -30,7 +31,7 @@ export async function GET(_req: Request, { params }: { params: { slug: string; f
   if (!fb) return new NextResponse('Not found', { status: 404 })
 
   if (fb.pdf_url && !fb.pdf_url.startsWith('/api/original/')) {
-    return NextResponse.redirect(fb.pdf_url, 302)
+    return NextResponse.redirect(fb.pdf_url, { status: 302, headers: NO_CACHE })
   }
 
   const { data, error } = await admin.storage
@@ -38,5 +39,6 @@ export async function GET(_req: Request, { params }: { params: { slug: string; f
     .createSignedUrl(`${slug}/${file}`, SIGNED_SECONDS)
   if (error || !data) return new NextResponse('Not found', { status: 404 })
 
-  return NextResponse.redirect(data.signedUrl, 302)
+  // The signed link expires; never let a browser reuse this redirect later.
+  return NextResponse.redirect(data.signedUrl, { status: 302, headers: NO_CACHE })
 }
