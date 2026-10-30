@@ -3262,3 +3262,94 @@ end $$;
 
 revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) from public;
 grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text) to anon, authenticated;
+
+-- ============================================================
+-- 42. Order details: option, delivery date, owner alert, fee estimate
+--   The platform fee is only recorded as an estimate (3%, placeholder rate).
+--   It is not charged yet.
+-- ============================================================
+alter table orders add column if not exists delivery_date date;
+alter table orders add column if not exists platform_fee bigint;
+alter table orders add column if not exists owner_notified_at timestamptz;
+
+drop function if exists submit_order(uuid, text, text, text, text, jsonb, boolean, text);
+
+create or replace function submit_order(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text,
+  p_items jsonb, p_marketing boolean, p_session text, p_delivery date
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := nullif(btrim(coalesce(p_memo, '')), '');
+  v_snapshot jsonb;
+  v_total bigint;
+  v_priced_all boolean;
+  v_count int;
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.order_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 주문을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if exists (select 1 from flipbooks f where f.id = p_flipbook and f.order_requires_subscription)
+     and not buyer_has_subscription(p_flipbook, v_contact) then
+    raise exception '이 자료의 주문은 구독자만 보낼 수 있어요';
+  end if;
+  if p_delivery is not null and (p_delivery < current_date or p_delivery > current_date + 365) then
+    raise exception '납기일은 오늘부터 1년 안에서 골라 주세요';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) not between 1 and 50 then
+    raise exception '상품을 골라 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if exists (select 1 from orders where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from orders where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+
+  -- Snapshot the chosen products at their current names and prices, with the chosen option.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_id', p.id, 'name', p.name, 'price', p.price, 'unit', p.unit,
+           'options', p.options, 'option', nullif(left(btrim(coalesce(i->>'option', '')), 60), ''),
+           'qty', least(greatest((i->>'qty')::int, 1), 999)
+         )), '[]'::jsonb),
+         coalesce(sum(p.price * least(greatest((i->>'qty')::int, 1), 999)), 0),
+         bool_and(p.price is not null)
+    into v_snapshot, v_total, v_priced_all
+  from jsonb_array_elements(p_items) as i
+  join catalog_products p on p.id = (i->>'product_id')::uuid and p.flipbook_id = p_flipbook;
+
+  select jsonb_array_length(coalesce(v_snapshot, '[]'::jsonb)) into v_count;
+  if v_count = 0 then raise exception '고른 상품을 찾을 수 없어요'; end if;
+
+  insert into orders (flipbook_id, owner_id, buyer_name, buyer_contact, buyer_company, memo,
+                      items, total, marketing_consent, session_id, delivery_date, platform_fee)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, v_snapshot,
+          case when coalesce(v_priced_all, false) then v_total else null end,
+          coalesce(p_marketing, false), p_session, p_delivery,
+          case when coalesce(v_priced_all, false) then round(v_total * 0.03)::bigint else null end);
+
+  if coalesce(p_marketing, false) then
+    if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and contact = v_contact) then
+      update flipbook_leads set marketing_consent = true
+        where flipbook_id = p_flipbook and contact = v_contact;
+    else
+      insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+      values (p_flipbook, v_owner, v_name, v_contact, true, p_session);
+    end if;
+  end if;
+end $$;
+
+revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) from public;
+grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) to anon, authenticated;

@@ -1,5 +1,5 @@
 'use client'
-// Product list with quantities, then an order request form (when the publisher takes order requests).
+// Product list with quantity and option, then a quote/order request form (when the publisher takes requests).
 // Nothing is paid here: the request goes to the publisher, who confirms it.
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -31,6 +31,8 @@ const btn: React.CSSProperties = { padding: 12, fontSize: 15, borderRadius: 10, 
 
 export default function ShopSheet({ flipbookId, session, products, orderOn, onClose }: Props) {
   const [cart, setCart] = useState<Record<string, number>>({})
+  const [choice, setChoice] = useState<Record<string, string>>({})
+  const [delivery, setDelivery] = useState('')
   const [step, setStep] = useState<'items' | 'form' | 'done'>('items')
   const [name, setName] = useState('')
   const [contact, setContact] = useState('')
@@ -41,6 +43,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const optionsOf = (p: ShopProduct) => (p.options ?? '').split(',').map((o) => o.trim()).filter(Boolean)
   const picked = products.filter((p) => (cart[p.id] ?? 0) > 0)
   const count = picked.reduce((s, p) => s + cart[p.id], 0)
   const allPriced = picked.every((p) => p.price !== null)
@@ -66,13 +69,18 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
       p_contact: contact,
       p_company: company,
       p_memo: memo,
-      p_items: picked.map((p) => ({ product_id: p.id, qty: cart[p.id] })),
+      p_items: picked.map((p) => ({ product_id: p.id, qty: cart[p.id], option: choice[p.id] ?? null })),
       p_marketing: marketing,
       p_session: session,
+      p_delivery: delivery || null,
     })
     setBusy(false)
     if (err) return setError(err.message || '보내지 못했어요. 잠시 후 다시 해 주세요.')
     setStep('done')
+    fetch('/api/orders/notify', {
+      method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flipbook_id: flipbookId, session }),
+    }).catch(() => undefined)
     fetch('/api/webhooks/dispatch', { method: 'POST', keepalive: true }).catch(() => undefined)
   }
 
@@ -105,8 +113,14 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
                       <div style={{ minWidth: 0, fontSize: 14 }}>
                         <strong style={{ display: 'block' }}>{p.name}</strong>
                         <span style={{ color: '#777', fontSize: 12 }}>
-                          {p.price !== null ? `${p.price.toLocaleString('ko-KR')}원` : '가격 문의'}{p.unit ? ` / ${p.unit}` : ''}{p.options ? ` · ${p.options}` : ''}
+                          {p.price !== null ? `${p.price.toLocaleString('ko-KR')}원` : '가격 문의'}{p.unit ? ` / ${p.unit}` : ''}
                         </span>
+                        {optionsOf(p).length > 0 && (
+                          <select value={choice[p.id] ?? optionsOf(p)[0]} onChange={(e) => setChoice((c) => ({ ...c, [p.id]: e.target.value }))}
+                            style={{ display: 'block', marginTop: 4, padding: '6px 8px', fontSize: 13, borderRadius: 8, border: '1px solid #ddd' }}>
+                            {optionsOf(p).map((o) => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <button type="button" onClick={() => setQty(p.id, q - 1)} disabled={q === 0} style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #ddd', background: '#fff' }}>−</button>
@@ -126,7 +140,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
 
             {orderOn ? (
               <button type="button" onClick={() => setStep('form')} disabled={count === 0} style={{ ...btn, width: '100%', marginTop: 14, background: count === 0 ? '#bbb' : '#111' }}>
-                주문 요청하기
+                견적·주문 요청하기
               </button>
             ) : (
               <p style={{ fontSize: 12, color: '#777', marginTop: 12 }}>이 자료는 지금 주문 요청을 받지 않아요.</p>
@@ -141,6 +155,9 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
             </label>
             <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>연락처 (휴대폰 번호 또는 이메일)
               <input style={field} value={contact} onChange={(e) => setContact(e.target.value)} maxLength={120} inputMode="tel" disabled={busy} />
+            </label>
+            <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>희망 납기일 (선택)
+              <input type="date" style={field} value={delivery} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDelivery(e.target.value)} disabled={busy} />
             </label>
             <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>회사명 (선택)
               <input style={field} value={company} onChange={(e) => setCompany(e.target.value)} maxLength={60} disabled={busy} />
@@ -160,7 +177,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" onClick={() => setStep('items')} disabled={busy} style={{ ...btn, flex: 1, background: '#fff', color: '#333', border: '1px solid #ddd' }}>이전</button>
               <button type="submit" disabled={!agree || !name.trim() || !contact.trim() || busy} style={{ ...btn, flex: 1, background: agree && name.trim() && contact.trim() ? '#111' : '#bbb' }}>
-                {busy ? '보내는 중...' : '주문 요청 보내기'}
+                {busy ? '보내는 중...' : '견적·주문 요청 보내기'}
               </button>
             </div>
           </form>

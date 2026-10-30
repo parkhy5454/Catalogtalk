@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Item = { name: string; price: number | null; unit: string | null; options: string | null; qty: number }
+type Item = { name: string; price: number | null; unit: string | null; options: string | null; option?: string | null; qty: number }
 type Order = {
   id: string
   buyer_name: string
@@ -17,6 +17,8 @@ type Order = {
   status: 'new' | 'done'
   marketing_consent: boolean
   created_at: string
+  delivery_date: string | null
+  platform_fee: number | null
 }
 
 const won = (n: number) => `${n.toLocaleString('ko-KR')}원`
@@ -34,7 +36,7 @@ export default function OrdersPage() {
       supabase.from('flipbooks').select('title').eq('id', id).maybeSingle(),
       supabase
         .from('orders')
-        .select('id, buyer_name, buyer_contact, buyer_company, memo, items, total, status, marketing_consent, created_at')
+        .select('id, buyer_name, buyer_contact, buyer_company, memo, items, total, status, marketing_consent, created_at, delivery_date, platform_fee')
         .eq('flipbook_id', id)
         .order('created_at', { ascending: false })
         .limit(500),
@@ -105,18 +107,23 @@ export default function OrdersPage() {
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
                   {o.items.map((it, i) => (
                     <li key={i}>
-                      {it.name} × {it.qty}{it.options ? ` (${it.options})` : ''}
+                      {it.name}{it.option ? ` (${it.option})` : ''} × {it.qty}
                       {it.price !== null ? ` · ${won(it.price * it.qty)}` : ' · 가격 문의'}
                     </li>
                   ))}
                 </ul>
                 <span style={{ fontSize: 13 }}>합계: {o.total === null ? '가격 확인 필요' : won(o.total)}</span>
+                {o.delivery_date && <span style={{ fontSize: 13 }}>희망 납기: {o.delivery_date}</span>}
+                {o.platform_fee !== null && (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>예상 중개 수수료 {won(o.platform_fee)} (3%, 아직 청구하지 않아요)</span>
+                )}
                 {o.memo && <p style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap' }}>{o.memo}</p>}
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{new Date(o.created_at).toLocaleString('ko-KR')}</span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button type="button" className="btn btn-ghost" onClick={() => toggle(o)}>
                     {o.status === 'new' ? '확인 완료로 표시' : '확인 전으로 되돌리기'}
                   </button>
+                  <Link className="btn btn-ghost" href={`/dashboard/orders/${id}/print/${o.id}`}>주문서 보기·인쇄</Link>
                   <button type="button" className="btn btn-ghost" onClick={() => remove(o.id)}>삭제</button>
                 </div>
               </li>
