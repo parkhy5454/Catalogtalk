@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: '%s | 카탈로그톡',
   },
   description:
-    'PDF 카탈로그를 카톡에서 바로 보는 플립북 링크로 변환. 앱 설치 없이 열람, 조회수 추적. 모바일 최적화.',
+    'PDF 카탈로그를 카톡에서 바로 보는 플립북 링크로 변환. 앱 설치 없이 열람하고 견적·주문까지, 조회수 추적과 고객 관리. 모바일 최적화.',
   keywords: ['플립북', '카탈로그', 'PDF', '카카오톡', 'CatalogTalk'],
   applicationName: SITE_NAME,
   openGraph: {
