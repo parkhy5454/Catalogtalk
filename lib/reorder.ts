@@ -58,22 +58,24 @@ export async function sendReorderReminders(): Promise<{ sent: number; failed: nu
 
     const { data: leads } = await svc
       .from('flipbook_leads')
-      .select('contact, unsubscribe_token, marketing_consent')
+      .select('id, contact, unsubscribe_token, marketing_consent')
       .eq('flipbook_id', b.id)
       .eq('marketing_consent', true)
-    const consentTokens = new Map<string, string>()
-    for (const l of leads ?? []) consentTokens.set(String(l.contact).trim().toLowerCase(), l.unsubscribe_token as string)
+    const consentTokens = new Map<string, { token: string; leadId: string }>()
+    for (const l of leads ?? []) consentTokens.set(String(l.contact).trim().toLowerCase(), { token: l.unsubscribe_token as string, leadId: l.id as string })
 
-    const batch: { to: string; subject: string; html: string; orderId: string }[] = []
+    const batch: { to: string; subject: string; html: string; orderId: string; leadId: string }[] = []
     for (const [contact, o] of due) {
       if (sentOrders.has(o.id)) continue
       if (!EMAIL_RE.test(contact)) continue
-      const token = consentTokens.get(contact)
-      if (!token) continue
+      const found = consentTokens.get(contact)
+      if (!found) continue
+      const token = found.token
       if (sent + failed + batch.length >= MAX_PER_RUN) break
       batch.push({
         to: contact,
         orderId: o.id,
+        leadId: found.leadId,
         subject: `${b.title} 재주문 안내`,
         html:
           `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#111">` +
@@ -91,6 +93,8 @@ export async function sendReorderReminders(): Promise<{ sent: number; failed: nu
     const markIds = batch.filter((_, i) => result.accepted[i]).map((m) => m.orderId)
     if (markIds.length > 0) {
       await svc.from('reorder_reminders').insert(markIds.map((order_id) => ({ order_id, flipbook_id: b.id })))
+      const leadIds = batch.filter((_, i) => result.accepted[i]).map((m) => m.leadId)
+      await svc.from('lead_sends').insert(leadIds.map((lead_id) => ({ lead_id, flipbook_id: b.id, kind: 'reorder' })))
     }
     sent += result.ok
     failed += result.failed

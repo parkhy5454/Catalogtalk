@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
   const { data: leads } = await svc
     .from('flipbook_leads')
-    .select('contact, unsubscribe_token')
+    .select('id, contact, unsubscribe_token')
     .eq('flipbook_id', flipbookId)
     .eq('marketing_consent', true)
     .limit(MAX_RECIPIENTS_PER_REQUEST * 2)
@@ -84,6 +84,7 @@ export async function POST(req: Request) {
 
   let ok = 0
   let failed = 0
+  const sentLeadIds: string[] = []
   for (let i = 0; i < emails.length; i += EMAIL_BATCH) {
     const chunk = emails.slice(i, i + EMAIL_BATCH)
     try {
@@ -92,11 +93,18 @@ export async function POST(req: Request) {
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(chunk),
       })
-      if (res.ok) ok += chunk.length
-      else failed += chunk.length
+      if (res.ok) {
+        ok += chunk.length
+        sentLeadIds.push(...targets.slice(i, i + EMAIL_BATCH).map((t) => t.id as string))
+      } else failed += chunk.length
     } catch {
       failed += chunk.length
     }
+  }
+
+  // Send history per customer (shown on the customer screen).
+  if (sentLeadIds.length > 0) {
+    await svc.from('lead_sends').insert(sentLeadIds.map((lead_id) => ({ lead_id, flipbook_id: flipbookId, kind: 'notice' })))
   }
 
   const status = failed === 0 ? 'sent' : ok === 0 ? 'failed' : 'partial'
