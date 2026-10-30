@@ -24,10 +24,11 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
 
   const { data } = await createServiceClient()
     .from('flipbooks')
-    .select('password_hash, is_public')
+    .select('password_hash, is_public, expires_at')
     .eq('slug', slug)
     .maybeSingle()
-  if (!data || !data.is_public) return NextResponse.json({ error: '플립북을 찾을 수 없어요' }, { status: 404 })
+  const expired = !!data?.expires_at && new Date(data.expires_at).getTime() <= Date.now()
+  if (!data || !data.is_public || expired) return NextResponse.json({ error: '플립북을 찾을 수 없어요' }, { status: 404 })
   if (!data.password_hash) return NextResponse.json({ ok: true })
 
   const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown'

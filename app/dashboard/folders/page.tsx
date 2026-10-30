@@ -81,7 +81,7 @@ export default function MyBookPage() {
     async (uid: string) => {
       const { data, error } = await supabase
         .from('flipbooks')
-        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public, password_hash')
+        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public, password_hash, expires_at')
         .eq('user_id', uid)
         .order('created_at', { ascending: false })
       if (error) setMessage({ kind: 'error', text: friendlyError(error) })
@@ -285,6 +285,34 @@ export default function MyBookPage() {
     }
     setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, is_public: next } : f)))
     setMessage({ kind: 'success', text: next ? '링크를 다시 열었어요' : '링크를 껐어요' })
+  }
+
+  const handleExpiry = async (fb: FlipbookRow) => {
+    setMessage(null)
+    const hint = fb.expires_at ? `현재 만료일: ${fb.expires_at.slice(0, 10)}\n` : ''
+    const input = window.prompt(`${hint}링크 만료일을 입력해 주세요 (예: 2026-12-31)\n비워 두면 기간 없음으로 바뀌어요.`, fb.expires_at ? fb.expires_at.slice(0, 10) : '')
+    if (input === null) return
+    const trimmed = input.trim()
+    let next: string | null = null
+    if (trimmed !== '') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed) || Number.isNaN(Date.parse(trimmed))) {
+        setMessage({ kind: 'error', text: '날짜는 2026-12-31 형식으로 입력해 주세요' })
+        return
+      }
+      // End of that day in Korea time.
+      next = `${trimmed}T23:59:59+09:00`
+      if (new Date(next).getTime() <= Date.now()) {
+        setMessage({ kind: 'error', text: '오늘 이후 날짜로 입력해 주세요' })
+        return
+      }
+    }
+    const { error } = await supabase.from('flipbooks').update({ expires_at: next }).eq('id', fb.id)
+    if (error) {
+      setMessage({ kind: 'error', text: friendlyError(error) })
+      return
+    }
+    setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, expires_at: next } : f)))
+    setMessage({ kind: 'success', text: next ? `${trimmed}까지 열려 있어요` : '기간 없음으로 바꿨어요' })
   }
 
   const handlePassword = async (fb: FlipbookRow) => {
@@ -550,6 +578,7 @@ export default function MyBookPage() {
                       {fb.title}
                       {!fb.is_public && <span className="pill" style={{ marginLeft: 6 }}>링크 꺼짐</span>}
                       {fb.has_password && <span className="pill" style={{ marginLeft: 6 }}>비밀번호</span>}
+                      {fb.expires_at && <span className="pill" style={{ marginLeft: 6 }}>{new Date(fb.expires_at).getTime() <= Date.now() ? '기간 만료' : `~${fb.expires_at.slice(0, 10)}`}</span>}
                     </div>
                     <div className="fb-meta">
                       <span className="truncate" style={{ maxWidth: '100%' }}>/b/{fb.slug}</span>
@@ -603,6 +632,9 @@ export default function MyBookPage() {
                           비공개로 옮기기
                         </button>
                       )}
+                      <button type="button" className="btn btn-ghost" onClick={() => handleExpiry(fb)}>
+                        만료일
+                      </button>
                       <button type="button" className="btn btn-ghost" onClick={() => handlePassword(fb)}>
                         {fb.has_password ? '비밀번호 해제' : '비밀번호 설정'}
                       </button>

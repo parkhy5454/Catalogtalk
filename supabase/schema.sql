@@ -443,3 +443,26 @@ create table if not exists unlock_attempts (
   locked_until timestamptz
 );
 alter table unlock_attempts enable row level security;
+
+-- 13. Link expiry (v13) ---------------------------------------------------
+-- Optional end time for a catalog's public link. Null = no end. After it passes,
+-- get_flipbook returns nothing, so the viewer and the original stop working.
+alter table flipbooks add column if not exists expires_at timestamptz;
+
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null
+  from flipbooks f
+  where f.slug = p_slug and f.is_public
+    and (f.expires_at is null or f.expires_at > now())
+  limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+notify pgrst, 'reload schema';

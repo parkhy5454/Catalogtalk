@@ -34,6 +34,7 @@ export type FlipbookRow = {
   is_public: boolean
   folder_id: string | null
   has_password?: boolean // UI only; the hash itself never reaches the browser
+  expires_at?: string | null
 }
 
 export function makeSlug(): string {
