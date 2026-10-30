@@ -153,6 +153,9 @@ export default function SignupPage() {
         <div className="auth-foot">
           이미 계정이 있나요? <Link href="/login">로그인</Link>
         </div>
+        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--muted)' }}>
+<Link href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>개인정보 처리방침</Link>을 확인해 주세요.
+        </div>
       </div>
     </div>
   )
