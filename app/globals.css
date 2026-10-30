@@ -1523,3 +1523,15 @@ body {
 }
 .view-notice span { flex: 1; min-width: 0; }
 .view-notice-btn { min-height: 36px; padding: 0 12px; flex-shrink: 0; }
+
+/* Referral: copy / SMS / email / share buttons in a two-per-row grid */
+.referral-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.referral-share .btn {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 0;
+  white-space: nowrap;
+}
