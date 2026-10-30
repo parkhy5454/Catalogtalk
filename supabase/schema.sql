@@ -413,3 +413,23 @@ create policy flipbook_private_delete_own on storage.objects for delete to authe
       union select id::text from flipbooks where user_id = auth.uid()
     )
   );
+
+-- 11. Flipbook password (v11) ------------------------------------------
+-- Stored as a scrypt hash (set by the owner through the app). Anonymous readers only learn
+-- has_password through get_flipbook; the hash itself is never returned to them.
+alter table flipbooks add column if not exists password_hash text;
+
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null
+  from flipbooks f where f.slug = p_slug and f.is_public limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+notify pgrst, 'reload schema';

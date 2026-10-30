@@ -5,9 +5,14 @@ import { createAnonClient } from '@/lib/supabase/anon'
 import { SITE_NAME, SITE_URL } from '@/lib/site'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import { resolvePageUrls } from '@/lib/flipbook/sign'
+import { cookieName } from '@/lib/flipbook/password'
+import { isFlipbookUnlocked } from '@/lib/flipbook/gate'
+import FlipbookPasswordGate from '@/components/flipbook-password-gate'
+import { cookies } from 'next/headers'
 import Viewer from './viewer'
 
-export const revalidate = 60
+// Per-visitor unlock cookie decides what is rendered, so this page must never be shared-cached.
+export const dynamic = 'force-dynamic'
 
 type Props = { params: { slug: string } }
 
@@ -85,6 +90,13 @@ export default async function ViewerPage({ params }: Props) {
         </div>
       </div>
     )
+  }
+
+  if (fb.has_password) {
+    const token = cookies().get(cookieName(slug))?.value
+    if (!(await isFlipbookUnlocked(slug, token))) {
+      return <FlipbookPasswordGate slug={slug} title={fb.title} />
+    }
   }
 
   const pages = await loadPages(fb.id)

@@ -8,6 +8,7 @@ export type FlipbookPublic = {
   page_count: number
   views: number
   created_at: string
+  has_password?: boolean
 }
 
 export type PageImage = {
