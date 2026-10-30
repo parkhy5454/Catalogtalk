@@ -75,6 +75,7 @@ export default function PriorityPage() {
   return (
     <main className="container section">
       <Link href={`/dashboard/stats/${id}`} className="btn btn-ghost" style={{ marginBottom: 12 }}>← 통계</Link>
+      <Link href={`/dashboard/sales/${id}`} className="btn btn-ghost" style={{ marginBottom: 12, marginLeft: 6 }}>AI 영업 분석</Link>
 
       <section className="panel">
         <div className="panel-head">

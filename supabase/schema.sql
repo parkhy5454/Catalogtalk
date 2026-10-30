@@ -3353,3 +3353,71 @@ end $$;
 
 revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) from public;
 grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date) to anon, authenticated;
+
+-- ============================================================
+-- 43. AI sales analysis: product interest, buyer intent, AI draft usage
+--   Intent tiers: hot = ordered, asked for a quote, or priority score >= 40;
+--   warm = score >= 15; cold = the rest. Viewing counts only pages held 5s or more.
+-- ============================================================
+create table if not exists ai_sales_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  month text not null,
+  count int not null default 0,
+  primary key (user_id, month)
+);
+alter table ai_sales_usage enable row level security;
+-- No policies: only the server (service role) reads or writes this table.
+
+create or replace function get_product_interest(p_flipbook uuid)
+returns table (product_id uuid, product_name text, product_page int, product_price bigint,
+               viewers int, dwell_ms bigint, ordered_qty bigint)
+language sql stable security definer set search_path = public
+as $$
+  select p.id, p.name, p.page_no, p.price,
+    (select count(distinct fv.session_id)::int from flipbook_views fv
+      where fv.flipbook_id = p_flipbook and fv.page_no = p.page_no
+        and fv.session_id is not null and coalesce(fv.dwell_ms, 0) >= 5000),
+    (select coalesce(sum(fv.dwell_ms), 0) from flipbook_views fv
+      where fv.flipbook_id = p_flipbook and fv.page_no = p.page_no),
+    (select coalesce(sum((it->>'qty')::bigint), 0) from orders o, jsonb_array_elements(o.items) it
+      where o.flipbook_id = p_flipbook and it->>'product_id' = p.id::text)
+  from catalog_products p
+  where p.flipbook_id = p_flipbook and can_manage_flipbook(p_flipbook)
+  order by 5 desc, 6 desc;
+$$;
+revoke all on function get_product_interest(uuid) from public, anon;
+grant execute on function get_product_interest(uuid) to authenticated;
+
+create or replace function get_buyer_intent(p_flipbook uuid)
+returns table (lead_id uuid, lead_name text, lead_contact text, tier text, score int,
+               ordered boolean, asked boolean, dwell_ms bigint, viewed_products text[])
+language sql stable security definer set search_path = public
+as $$
+  with pr as (select * from get_lead_priorities(p_flipbook)),
+  ord as (
+    select distinct l.id as lead_id from flipbook_leads l
+    join orders o on o.flipbook_id = p_flipbook and lower(btrim(o.buyer_contact)) = lower(btrim(l.contact))
+    where l.flipbook_id = p_flipbook
+  ),
+  viewed as (
+    select l.id as lead_id, array_agg(distinct p.name order by p.name) as products
+    from flipbook_leads l
+    join flipbook_views fv on fv.flipbook_id = p_flipbook and fv.session_id = l.session_id
+      and coalesce(fv.dwell_ms, 0) >= 5000
+    join catalog_products p on p.flipbook_id = p_flipbook and p.page_no = fv.page_no
+    where l.flipbook_id = p_flipbook
+    group by l.id
+  )
+  select pr.lead_id, pr.name, pr.contact,
+    case when (ord.lead_id is not null or pr.quote_requested or pr.score >= 40) then 'hot'
+         when pr.score >= 15 then 'warm' else 'cold' end,
+    pr.score, (ord.lead_id is not null), pr.quote_requested, pr.dwell_ms, coalesce(viewed.products, '{}')
+  from pr
+  left join ord on ord.lead_id = pr.lead_id
+  left join viewed on viewed.lead_id = pr.lead_id
+  order by pr.score desc;
+$$;
+revoke all on function get_buyer_intent(uuid) from public, anon;
+grant execute on function get_buyer_intent(uuid) to authenticated;
+
+notify pgrst, 'reload schema';
