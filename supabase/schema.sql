@@ -3968,3 +3968,60 @@ revoke all on function get_campaign_stats(uuid) from public, anon;
 grant execute on function get_campaign_stats(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+
+-- ============================================================
+-- 49. Security review fixes
+--   a) Cross-catalog references: a row may only point at leads, products and tiers of the same catalog.
+--   b) increment_view is unused and let anyone raise any catalog's view count: removed.
+-- ============================================================
+create or replace function check_same_flipbook() returns trigger
+language plpgsql set search_path = public
+as $$
+declare
+  r jsonb := to_jsonb(new);
+  v_fb uuid := nullif(r->>'flipbook_id', '')::uuid;
+  v_lead uuid := nullif(r->>'lead_id', '')::uuid;
+  v_product uuid := nullif(r->>'product_id', '')::uuid;
+  v_tier uuid := nullif(r->>'tier_id', '')::uuid;
+  v_found uuid;
+begin
+  if v_lead is not null then
+    select flipbook_id into v_found from flipbook_leads where id = v_lead;
+    if v_found is distinct from v_fb then raise exception '다른 자료의 고객은 연결할 수 없어요'; end if;
+  end if;
+  if v_product is not null then
+    select flipbook_id into v_found from catalog_products where id = v_product;
+    if v_found is distinct from v_fb then raise exception '다른 자료의 상품은 연결할 수 없어요'; end if;
+  end if;
+  if v_tier is not null then
+    select flipbook_id into v_found from price_tiers where id = v_tier;
+    if v_found is distinct from v_fb then raise exception '다른 자료의 등급은 연결할 수 없어요'; end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists customer_links_same_fb on customer_links;
+create trigger customer_links_same_fb before insert or update on customer_links
+  for each row execute function check_same_flipbook();
+drop trigger if exists product_access_same_fb on product_access;
+create trigger product_access_same_fb before insert or update on product_access
+  for each row execute function check_same_flipbook();
+drop trigger if exists lead_notes_same_fb on lead_notes;
+create trigger lead_notes_same_fb before insert or update on lead_notes
+  for each row execute function check_same_flipbook();
+drop trigger if exists product_tier_prices_same_fb on product_tier_prices;
+create trigger product_tier_prices_same_fb before insert or update on product_tier_prices
+  for each row execute function check_same_flipbook();
+drop trigger if exists promotions_same_fb on promotions;
+create trigger promotions_same_fb before insert or update on promotions
+  for each row execute function check_same_flipbook();
+drop trigger if exists flipbook_leads_same_fb on flipbook_leads;
+create trigger flipbook_leads_same_fb before insert or update of tier_id, flipbook_id on flipbook_leads
+  for each row execute function check_same_flipbook();
+
+revoke all on function increment_view(uuid) from public, anon, authenticated;
+drop function if exists increment_view(uuid);
+
+notify pgrst, 'reload schema';
