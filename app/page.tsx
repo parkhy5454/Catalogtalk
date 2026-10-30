@@ -30,13 +30,13 @@ export default async function Home() {
 
       <main className="container">
         <section className="hero">
-          <div className="hero-tag">디지털 북으로 바꿔주는 플립북</div>
+          <div className="hero-tag">카탈로그로 견적과 주문까지</div>
           <h1 className="hero-title">
-            PDF 카탈로그를<br />카톡에서 바로 보는<br />
-            <em>플립북 링크</em>로
+            PDF 카탈로그를<br />카톡에서 바로 보고<br />
+            <em>견적·주문</em>까지
           </h1>
           <p className="hero-sub">
-            고객은 앱 설치 없이 카톡에서 바로 봅니다.<br />
+            고객은 앱 설치 없이 카톡에서 보고 바로 견적을 요청해요.<br />
             누가 몇 초 봤는지, 어디서 이탈했는지 실시간으로 알 수 있어요.
           </p>
           <div className="hero-actions">
@@ -52,9 +52,9 @@ export default async function Home() {
         <section id="features" className="feature-grid" aria-labelledby="features-title">
           <h2 id="features-title" className="sr-only">주요 기능</h2>
           <div className="feature-card">
-            <div className="icon" aria-hidden="true">⚡️</div>
-            <h3>3초 변환</h3>
-            <p>PDF 업로드하면 3초 만에 카톡 공유용 링크 생성</p>
+            <div className="icon" aria-hidden="true">🤖</div>
+            <h3>상품 자동 등록</h3>
+            <p>PDF를 올리면 상품명·가격을 AI가 읽어 한 번에 등록</p>
           </div>
           <div className="feature-card">
             <div className="icon" aria-hidden="true">📊</div>
@@ -62,9 +62,24 @@ export default async function Home() {
             <p>누가 언제 봤는지, 몇 페이지까지 봤는지 실시간 추적</p>
           </div>
           <div className="feature-card">
-            <div className="icon" aria-hidden="true">💬</div>
-            <h3>카톡 최적화</h3>
-            <p>오픈그래프 썸네일, 카톡에서 예쁘게 보이는 링크</p>
+            <div className="icon" aria-hidden="true">🛒</div>
+            <h3>카톡에서 견적·주문</h3>
+            <p>고객이 카톡에서 바로 옵션을 고르고 견적을 요청</p>
+          </div>
+          <div className="feature-card">
+            <div className="icon" aria-hidden="true">🎯</div>
+            <h3>AI 영업 분석</h3>
+            <p>살 가능성이 높은 고객과 후속 메시지 초안을 알려줘요</p>
+          </div>
+          <div className="feature-card">
+            <div className="icon" aria-hidden="true">🔳</div>
+            <h3>QR 오프라인 분석</h3>
+            <p>전단·매장 QR마다 열어본 수를 따로 확인</p>
+          </div>
+          <div className="feature-card">
+            <div className="icon" aria-hidden="true">👥</div>
+            <h3>고객 관리</h3>
+            <p>고객 파이프라인, 고객별 맞춤 링크, 자동 재방문 알림</p>
           </div>
         </section>
 

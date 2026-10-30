@@ -45,7 +45,7 @@ export default function DashboardPage() {
         <ol className="intro-steps">
           <li><span className="intro-num">1</span><span>PDF 또는 Word 파일을 올려요</span></li>
           <li><span className="intro-num">2</span><span>플립북 링크가 바로 생겨요</span></li>
-          <li><span className="intro-num">3</span><span>카톡·문자로 보내면 고객이 앱 설치 없이 봐요</span></li>
+          <li><span className="intro-num">3</span><span>고객이 카톡에서 보고 바로 견적을 요청해요</span></li>
         </ol>
         <Link href="/dashboard/new" className="btn intro-cta">새 플립북 만들기 →</Link>
       </section>
