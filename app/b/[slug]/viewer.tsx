@@ -43,6 +43,16 @@ function qrCode(): string | null {
   }
 }
 
+// Customer link token (?t=...). Only the short token shape is kept.
+function personalToken(): string | null {
+  try {
+    const t = new URLSearchParams(window.location.search).get('t')
+    return t && /^[A-Za-z0-9]{10,16}$/.test(t) ? t : null
+  } catch {
+    return null
+  }
+}
+
 // Start page from a QR link (?page=N, 1-based), kept inside the catalog's page range.
 function initialPageIdx(pageCount: number): number {
   try {
@@ -155,11 +165,14 @@ export default function Viewer({ flipbook, pages }: Props) {
   const pageProducts = products.filter((p) => p.page_no === pageIdx + 1)
   const [shopOpen, setShopOpen] = useState(false)
   const [shopFocus, setShopFocus] = useState<string | null>(null)
+  // Personal link (?t=...): the customer's own prices and products. Otherwise the public list.
+  const [token] = useState<string | null>(() => personalToken())
   useEffect(() => {
-    createClient()
-      .rpc('get_products', { p_slug: flipbook.slug })
-      .then(({ data }) => setProducts(Array.isArray(data) ? (data as ShopProduct[]) : []))
-  }, [flipbook.slug])
+    const q = token
+      ? createClient().rpc('get_personal_products', { p_slug: flipbook.slug, p_token: token })
+      : createClient().rpc('get_products', { p_slug: flipbook.slug })
+    q.then(({ data }) => setProducts(Array.isArray(data) ? (data as ShopProduct[]) : []))
+  }, [flipbook.slug, token])
   // AI translations: languages the publisher created, loaded once per visit.
   const [transLangs, setTransLangs] = useState<string[]>([])
   const [transOpen, setTransOpen] = useState(false)
@@ -519,7 +532,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         </div>
       </header>
       {shopOpen && (
-        <ShopSheet flipbookId={flipbook.id} session={visitId()} products={products} orderOn={flipbook.order_form === true} initialId={shopFocus} onClose={() => { setShopOpen(false); setShopFocus(null) }} />
+        <ShopSheet flipbookId={flipbook.id} session={visitId()} products={products} orderOn={flipbook.order_form === true} initialId={shopFocus} token={token} onClose={() => { setShopOpen(false); setShopFocus(null) }} />
       )}
       {!shopOpen && pageProducts.length > 0 && (
         <div role="region" aria-label="이 쪽의 상품" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(12px + env(safe-area-inset-bottom))', zIndex: 30, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>

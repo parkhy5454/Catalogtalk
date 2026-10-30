@@ -4,9 +4,13 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { SITE_URL as SITE } from '@/lib/site'
 import { STAGES, TIMELINE_LABEL, stageLabel, type StageKey } from '@/lib/crm'
 
-type Lead = { id: string; name: string; contact: string; stage: StageKey; flipbook_id: string }
+type Lead = { id: string; name: string; contact: string; stage: StageKey; flipbook_id: string; tier_id: string | null }
+type Tier = { id: string; name: string; discount_pct: number }
+type Link = { token: string; created_at: string }
+type Restricted = { id: string; name: string }
 type Event = { kind: string; at: string | null; title: string; detail: string }
 type Note = { id: string; body: string; created_at: string }
 
@@ -21,16 +25,34 @@ export default function CustomerPage() {
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tiers, setTiers] = useState<Tier[]>([])
+  const [link, setLink] = useState<Link | null>(null)
+  const [slug, setSlug] = useState('')
+  const [restricted, setRestricted] = useState<Restricted[]>([])
+  const [access, setAccess] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     const supabase = createClient()
     const [l, tl, nt] = await Promise.all([
-      supabase.from('flipbook_leads').select('id, name, contact, stage, flipbook_id').eq('id', id).maybeSingle(),
+      supabase.from('flipbook_leads').select('id, name, contact, stage, flipbook_id, tier_id').eq('id', id).maybeSingle(),
       supabase.rpc('get_customer_timeline', { p_lead: id }),
       supabase.from('lead_notes').select('id, body, created_at').eq('lead_id', id).order('created_at', { ascending: false }),
     ])
     if (!l.data) return setNotFound(true)
     setLead(l.data as Lead)
+    const fbId = (l.data as Lead).flipbook_id
+    const [tr, lk, bk, rs, ac] = await Promise.all([
+      supabase.from('price_tiers').select('id, name, discount_pct').eq('flipbook_id', fbId).order('created_at'),
+      supabase.from('customer_links').select('token, created_at').eq('lead_id', id).is('revoked_at', null).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('flipbooks').select('slug').eq('id', fbId).maybeSingle(),
+      supabase.from('catalog_products').select('id, name').eq('flipbook_id', fbId).eq('visibility', 'restricted').order('page_no', { ascending: true }),
+      supabase.from('product_access').select('product_id').eq('lead_id', id),
+    ])
+    setTiers((tr.data as Tier[]) ?? [])
+    setLink((lk.data as Link | null) ?? null)
+    setSlug(bk.data?.slug ?? '')
+    setRestricted((rs.data as Restricted[]) ?? [])
+    setAccess(new Set(((ac.data as { product_id: string }[]) ?? []).map((r) => r.product_id)))
     if (tl.error) setError('기록을 불러오지 못했어요')
     setEvents((tl.data as Event[]) ?? [])
     setNotes((nt.data as Note[]) ?? [])
@@ -45,6 +67,38 @@ export default function CustomerPage() {
     const { error: err } = await createClient().from('flipbook_leads').update({ stage }).eq('id', lead.id)
     if (err) return setError('단계를 바꾸지 못했어요')
     setLead({ ...lead, stage })
+  }
+
+  const setTier = async (tierId: string) => {
+    if (!lead) return
+    const { error: err } = await createClient().from('flipbook_leads').update({ tier_id: tierId || null }).eq('id', lead.id)
+    if (err) return setError('등급을 바꾸지 못했어요')
+    await load()
+  }
+
+  const makeLink = async () => {
+    if (!lead) return
+    const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+    const { error: err } = await createClient().from('customer_links').insert({ token, flipbook_id: lead.flipbook_id, lead_id: lead.id })
+    if (err) return setError('고객 링크를 만들지 못했어요')
+    await load()
+  }
+
+  const revokeLink = async () => {
+    if (!link || !window.confirm('이 링크를 끊을까요? 링크로 보던 고객은 더 이상 전용 가격을 못 봐요.')) return
+    const { error: err } = await createClient().from('customer_links').update({ revoked_at: new Date().toISOString() }).eq('token', link.token)
+    if (err) return setError('링크를 끊지 못했어요')
+    await load()
+  }
+
+  const toggleAccess = async (productId: string, on: boolean) => {
+    if (!lead) return
+    const supabase = createClient()
+    const { error: err } = on
+      ? await supabase.from('product_access').insert({ product_id: productId, lead_id: lead.id, flipbook_id: lead.flipbook_id })
+      : await supabase.from('product_access').delete().eq('product_id', productId).eq('lead_id', lead.id)
+    if (err) return setError('바꾸지 못했어요')
+    await load()
   }
 
   const addNote = async (e: React.FormEvent) => {
@@ -105,6 +159,43 @@ export default function CustomerPage() {
           <span>재구매 시기: {reorderDue.length === 0 ? '설정된 재구매 알림이 없어요' : reorderDue.map((r) => `${r.detail} ${fmt(r.at)}`).join(' / ')}</span>
         </div>
         {error && <div className="notice notice-error" role="alert" style={{ marginTop: 10 }}>{error}</div>}
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2 className="panel-title" style={{ fontSize: 16 }}>고객 전용 카탈로그</h2>
+        <label className="field" style={{ marginTop: 10 }}>
+          <span className="field-label">거래처 등급</span>
+          <select className="input" value={lead?.tier_id ?? ''} onChange={(e) => setTier(e.target.value)} disabled={!lead}>
+            <option value="">일반 고객</option>
+            {tiers.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.discount_pct}% 할인</option>)}
+          </select>
+        </label>
+        <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+          <span style={{ fontSize: 13 }}>전용 링크</span>
+          {link ? (
+            <>
+              <code style={{ fontSize: 11, wordBreak: 'break-all', color: 'var(--muted)' }}>{`${SITE}/b/${slug}?t=${link.token}`}</code>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-ghost" onClick={() => navigator.clipboard?.writeText(`${SITE}/b/${slug}?t=${link.token}`).catch(() => undefined)}>링크 복사</button>
+                <button type="button" className="btn btn-ghost" onClick={revokeLink}>링크 끊기</button>
+              </div>
+            </>
+          ) : (
+            <button type="button" className="btn btn-ghost" onClick={makeLink} disabled={!lead || !slug}>전용 링크 만들기</button>
+          )}
+        </div>
+        {restricted.length > 0 && (
+          <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 13 }}>고객 전용 상품 보여 주기</span>
+            {restricted.map((r) => (
+              <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={access.has(r.id)} onChange={(e) => toggleAccess(r.id, e.target.checked)} />
+                {r.name}
+              </label>
+            ))}
+          </div>
+        )}
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>전용 링크로 들어온 고객만 등급 가격과 고객 전용 상품을 봐요. 링크는 고객에게 직접 보내 주세요.</p>
       </section>
 
       <section className="panel" style={{ marginTop: 16 }}>
