@@ -137,7 +137,7 @@ export default function LeadSheet({ flipbookId, session, onClose }: Props) {
               <span>
                 <strong>[필수]</strong> 이름과 연락처를 이 자료의 발행자에게 전달하는 데 동의해요.
                 <br />
-                <span style={{ color: '#777' }}>보관 기간은 1년이며, 그 뒤 자동 삭제돼요. </span>
+                <span style={{ color: '#777' }}>발행자는 이 연락처를 내가 자료를 본 기록(본 쪽, 머문 시간)과 함께 보고 연락 순서를 정할 수 있어요. 보관 기간은 1년이며, 그 뒤 자동 삭제돼요. </span>
                 <Link href="/privacy" target="_blank" style={{ color: '#555' }}>개인정보 처리방침</Link>
               </span>
             </label>

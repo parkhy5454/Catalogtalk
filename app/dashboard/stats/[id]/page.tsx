@@ -311,6 +311,36 @@ export default function FlipbookStatsPage() {
         </div>
       </section>
 
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="priority-card-title">
+        <h2 className="panel-title" id="priority-card-title" style={{ fontSize: 16 }}>영업 우선순위</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          연락처를 남긴 분을 열람 기록으로 순위를 매겨 어디부터 연락할지 정할 수 있어요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/priority/${id}`} className="btn btn-ghost">우선순위 보기</Link>
+        </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="notify-card-title">
+        <h2 className="panel-title" id="notify-card-title" style={{ fontSize: 16 }}>알림 보내기</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          리드 중 소식 수신에 동의한 분께 새 자료 소식을 이메일로 보내요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/notify/${id}`} className="btn btn-ghost">알림 보내기</Link>
+        </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="trans-card-title">
+        <h2 className="panel-title" id="trans-card-title" style={{ fontSize: 16 }}>다국어 번역</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          영어, 중국어, 일본어, 베트남어 번역본을 만들어 방문자에게 보여줄 수 있어요. AI 번역이라 확인이 필요해요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/translate/${id}`} className="btn btn-ghost">번역 관리</Link>
+        </div>
+      </section>
+
       <section className="panel" style={{ marginTop: 16 }} aria-labelledby="quote-card-title">
         <h2 className="panel-title" id="quote-card-title" style={{ fontSize: 16 }}>견적 요청</h2>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
