@@ -80,6 +80,10 @@ export default function SettingsPage() {
             <span>👥 팀</span>
             <span aria-hidden="true">›</span>
           </Link>
+          <Link className="menu-item" href="/dashboard/deals">
+            <span>💼 거래 기록</span>
+            <span aria-hidden="true">›</span>
+          </Link>
           <Link className="menu-item" href="/dashboard/integrations">
             <span>🔌 외부 연동</span>
             <span aria-hidden="true">›</span>

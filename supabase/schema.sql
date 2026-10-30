@@ -2807,3 +2807,62 @@ revoke all on function get_lead_priorities(uuid) from public, anon;
 grant execute on function get_lead_priorities(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 38. Buyer directory and deal ledger (v38) ----------------------------------
+
+-- ── Directory: owners choose to list a public catalog ─────────────
+alter table flipbooks add column if not exists listed boolean not null default false;
+alter table flipbooks add column if not exists category text;
+alter table flipbooks add column if not exists summary text;
+
+alter table flipbooks drop constraint if exists flipbooks_category_check;
+alter table flipbooks add constraint flipbooks_category_check
+  check (category is null or category in ('산업용품', '식품', '패션', '전자', '생활', '기타'));
+alter table flipbooks drop constraint if exists flipbooks_summary_check;
+alter table flipbooks add constraint flipbooks_summary_check
+  check (summary is null or char_length(summary) <= 200);
+
+-- Listed, public, not expired catalogs. Anyone may read this list (no private fields).
+create or replace function list_directory(p_category text default null, p_query text default null)
+returns table (
+  id uuid, title text, slug text, thumb_url text, summary text, category text,
+  page_count int, quote_form boolean, created_at timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.thumb_url, f.summary, f.category,
+         f.page_count, f.quote_form, f.created_at
+  from flipbooks f
+  where f.listed and f.is_public and (f.expires_at is null or f.expires_at > now())
+    and (p_category is null or p_category = '' or f.category = p_category)
+    and (p_query is null or p_query = ''
+         or f.title ilike '%' || p_query || '%'
+         or coalesce(f.summary, '') ilike '%' || p_query || '%')
+  order by f.created_at desc
+  limit 60;
+$$;
+grant execute on function list_directory(text, text) to anon, authenticated;
+
+-- ── Deal ledger: a quote that was won, with the amount and the fee at the current rate ──
+create table if not exists deals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  quote_id uuid references quote_requests(id) on delete set null,
+  flipbook_id uuid references flipbooks(id) on delete set null,
+  buyer_name text not null check (char_length(buyer_name) between 1 and 40),
+  buyer_company text check (buyer_company is null or char_length(buyer_company) <= 60),
+  amount bigint not null check (amount >= 0),
+  fee_rate numeric(5, 4) not null check (fee_rate >= 0 and fee_rate <= 1),
+  fee_amount bigint not null check (fee_amount >= 0),
+  memo text check (memo is null or char_length(memo) <= 500),
+  closed_on date not null default current_date,
+  created_at timestamptz not null default now()
+);
+create index if not exists deals_user_idx on deals (user_id, closed_on);
+
+alter table deals enable row level security;
+drop policy if exists deals_owner_all on deals;
+create policy deals_owner_all on deals for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+notify pgrst, 'reload schema';
