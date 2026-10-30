@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { copyText } from '@/lib/clipboard'
+import { KAKAO_JS_KEY, shareCatalogToKakao } from '@/lib/kakao'
 import {
   convertExisting,
   migrateToPrivate,
@@ -671,6 +672,26 @@ export default function MyBookPage() {
           <div className="sheet" role="dialog" aria-modal="true" aria-label="보내기">
             <div className="sheet-grip" aria-hidden="true" />
             <div className="sheet-title">{shareTarget.title}</div>
+            {KAKAO_JS_KEY && shareTarget.thumb_url && (
+              <button
+                type="button"
+                className="sheet-action"
+                onClick={async () => {
+                  try {
+                    await shareCatalogToKakao({
+                      title: shareTarget.title,
+                      imageUrl: shareTarget.thumb_url as string,
+                      link: `${origin}/b/${shareTarget.slug}`,
+                    })
+                    setShareOpenId(null)
+                  } catch (err) {
+                    setMessage({ kind: 'error', text: err instanceof Error ? err.message : '카카오톡으로 보내지 못했어요' })
+                  }
+                }}
+              >
+                <span className="sheet-icon" aria-hidden="true">💛</span>카카오톡으로 보내기
+              </button>
+            )}
             {canNativeShare && (
               <button type="button" className="sheet-action" onClick={() => handleNativeShare(shareTarget)}>
                 <span className="sheet-icon" aria-hidden="true">📤</span>공유하기
