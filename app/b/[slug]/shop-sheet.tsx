@@ -133,14 +133,19 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
               </ul>
             )}
 
-            <div style={{ marginTop: 14, fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>
-              <span>고른 상품 {count}개</span>
-              <strong>{count === 0 ? '' : allPriced ? `합계 ${total.toLocaleString('ko-KR')}원` : '합계는 발행자가 확인해요'}</strong>
+            <div style={{ marginTop: 14, background: '#1f1f1f', color: '#fff', borderRadius: 12, padding: '12px 14px', display: 'grid', gap: 6, fontSize: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Total items</span><strong>{count}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Total value</span>
+                <strong>{count === 0 ? '-' : allPriced ? `${total.toLocaleString('ko-KR')}원` : '발행자가 확인해요'}</strong>
+              </div>
             </div>
 
             {orderOn ? (
               <button type="button" onClick={() => setStep('form')} disabled={count === 0} style={{ ...btn, width: '100%', marginTop: 14, background: count === 0 ? '#bbb' : '#111' }}>
-                견적·주문 요청하기
+                견적 요청하기
               </button>
             ) : (
               <p style={{ fontSize: 12, color: '#777', marginTop: 12 }}>이 자료는 지금 주문 요청을 받지 않아요.</p>
@@ -177,7 +182,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" onClick={() => setStep('items')} disabled={busy} style={{ ...btn, flex: 1, background: '#fff', color: '#333', border: '1px solid #ddd' }}>이전</button>
               <button type="submit" disabled={!agree || !name.trim() || !contact.trim() || busy} style={{ ...btn, flex: 1, background: agree && name.trim() && contact.trim() ? '#111' : '#bbb' }}>
-                {busy ? '보내는 중...' : '견적·주문 요청 보내기'}
+                {busy ? '보내는 중...' : '견적 요청 보내기'}
               </button>
             </div>
           </form>
