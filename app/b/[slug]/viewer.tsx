@@ -5,6 +5,8 @@ import { playPageTurn, unlockAudio } from '@/lib/flipbook/sound'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
+import LeadSheet, { leadDone } from './lead-sheet'
+import QuoteSheet from './quote-sheet'
 
 // One id per page load (one visit). Lets the owner group rows into visits.
 let cachedVisitId: string | null = null
@@ -16,6 +18,17 @@ function visitId(): string {
         : Math.random().toString(36).slice(2) + Date.now().toString(36)
   }
   return cachedVisitId
+}
+
+// Where the visitor came from: the share link carries ?src=kakao, sms, mail, link, native.
+// Only short lowercase tags are kept; anything else counts as a direct visit.
+function trafficSource(): string | null {
+  try {
+    const s = new URLSearchParams(window.location.search).get('src')
+    return s && /^[a-z]{1,16}$/.test(s) ? s : null
+  } catch {
+    return null
+  }
 }
 
 const SOUND_KEY = 'catalogtalk-page-sound'
@@ -104,6 +117,16 @@ export default function Viewer({ flipbook, pages }: Props) {
       setNoticeOpen(false)
     }
   }, [])
+  // Lead sheet (publisher turned it on): asked once, after the visitor turns the first page.
+  const [leadOpen, setLeadOpen] = useState(false)
+  const leadAsked = useRef(false)
+  useEffect(() => {
+    if (!flipbook.lead_form || leadAsked.current || pageIdx < 1 || leadDone(flipbook.id)) return
+    leadAsked.current = true
+    setLeadOpen(true)
+  }, [pageIdx, flipbook.lead_form, flipbook.id])
+  // Quote request: opened from the top bar when the publisher turned it on.
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const dismissNotice = () => {
     try {
       localStorage.setItem(NOTICE_KEY, '1')
@@ -305,6 +328,7 @@ export default function Viewer({ flipbook, pages }: Props) {
           p_page: pageNo,
           p_dwell: Math.max(0, Math.min(dwellMs, 3_600_000)),
           p_ua: navigator.userAgent.slice(0, 255),
+          p_src: trafficSource(),
         })
         .then(() => undefined)
     },
@@ -406,6 +430,11 @@ export default function Viewer({ flipbook, pages }: Props) {
               ← 목록
             </a>
           )}
+          {flipbook.quote_form && (
+            <button type="button" className="btn btn-dark viewer-pill" onClick={() => setQuoteOpen(true)}>
+              견적 요청
+            </button>
+          )}
           {hasPages && (
             <button
               type="button"
@@ -437,6 +466,12 @@ export default function Viewer({ flipbook, pages }: Props) {
           ))}
         </div>
       </header>
+      {quoteOpen && (
+        <QuoteSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setQuoteOpen(false)} />
+      )}
+      {leadOpen && (
+        <LeadSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setLeadOpen(false)} />
+      )}
       {noticeOpen && (
         <div className="view-notice" role="note">
           <span>쪽 넘김 기록(쪽 번호, 머문 시간, 기기 종류)이 발행자 통계에 쓰여요. 기록은 1년 뒤 자동 삭제돼요.</span>

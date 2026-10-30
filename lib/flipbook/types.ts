@@ -9,6 +9,8 @@ export type FlipbookPublic = {
   views: number
   created_at: string
   has_password?: boolean
+  lead_form?: boolean
+  quote_form?: boolean
 }
 
 export type PageImage = {
