@@ -251,6 +251,12 @@ export default function ProductsPage() {
       </section>
 
       <section className="panel" style={{ marginTop: 16 }}>
+        <h2 className="panel-title" style={{ fontSize: 16 }}>신제품 카탈로그</h2>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>고른 상품으로 새 카탈로그를 자동으로 만들어요.</p>
+        <Link href={`/dashboard/products/${id}/new-catalog`} className="btn btn-primary" style={{ marginTop: 10 }}>신제품 카탈로그 만들기</Link>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
         <h2 className="panel-title" style={{ fontSize: 16 }}>사진 위치 지정</h2>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
           쪽을 열고, 상품을 고른 뒤 사진이 있는 자리를 드래그해 주세요. 그 자리가 상품 사진이 돼요.
