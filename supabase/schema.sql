@@ -1855,3 +1855,69 @@ $$;
 
 grant execute on function send_friend_request(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 28. Hide a member inside a group (v28) ----------------------------------
+-- A member can hide another member's messages in a group room. Only the hider stops seeing them;
+-- the other person and the rest of the room are not affected. Works for group rooms only.
+create table if not exists chat_mutes (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  muted_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, muted_id)
+);
+alter table chat_mutes enable row level security;
+
+drop policy if exists chat_mutes_own on chat_mutes;
+create policy chat_mutes_own on chat_mutes for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists chat_messages_member_select on chat_messages;
+create policy chat_messages_member_select on chat_messages for select to authenticated
+  using (
+    is_thread_member(thread_id, auth.uid())
+    and not exists (
+      select 1 from chat_mutes x
+      where x.user_id = auth.uid() and x.muted_id = chat_messages.sender_id
+    )
+  );
+
+create or replace function mute_member(p_thread uuid, p_user uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null or not is_thread_member(p_thread, auth.uid()) then
+    raise exception '대화를 찾을 수 없어요';
+  end if;
+  if not exists (select 1 from chat_threads t where t.id = p_thread and t.is_group) then
+    raise exception '단체 대화에서만 숨길 수 있어요';
+  end if;
+  if p_user = auth.uid() then raise exception '자기 자신은 숨길 수 없어요'; end if;
+  insert into chat_mutes (user_id, muted_id) values (auth.uid(), p_user)
+  on conflict (user_id, muted_id) do nothing;
+end;
+$$;
+
+create or replace function unmute_member(p_user uuid)
+returns void
+language sql security definer set search_path = public
+as $$
+  delete from chat_mutes where user_id = auth.uid() and muted_id = p_user
+$$;
+
+create or replace function list_muted_members()
+returns table (user_id uuid, display_name text)
+language sql stable security definer set search_path = public
+as $$
+  select x.muted_id, coalesce(c.company_name, c.name)
+  from chat_mutes x
+  left join customers c on c.user_id = x.muted_id
+  where x.user_id = auth.uid()
+  order by x.created_at desc
+$$;
+
+grant execute on function mute_member(uuid, uuid) to authenticated;
+grant execute on function unmute_member(uuid) to authenticated;
+grant execute on function list_muted_members() to authenticated;
+notify pgrst, 'reload schema';

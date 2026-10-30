@@ -75,6 +75,9 @@ export default function ChatThreadPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [menuOpen, setMenuOpen] = useState(false)
+  const [muted, setMuted] = useState<Member[]>([])
+  const [mutePanelOpen, setMutePanelOpen] = useState(false)
+  const mutedRef = useRef<Set<string>>(new Set())
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -88,6 +91,38 @@ export default function ChatThreadPage() {
     const { data } = await supabase.rpc('get_read_status', { p_thread: id })
     setReaders((data as Reader[]) ?? [])
   }, [id, supabase])
+
+  const loadMuted = useCallback(async () => {
+    const { data } = await supabase.rpc('list_muted_members')
+    const list = (data as Member[]) ?? []
+    mutedRef.current = new Set(list.map((m) => m.user_id))
+    setMuted(list)
+  }, [supabase])
+
+  const reloadMessages = useCallback(async () => {
+    const { data } = await supabase
+      .from('chat_messages')
+      .select('id, sender_id, body, catalog_title, catalog_slug, catalog_thumb, created_at, file_path, file_name, file_type, file_size')
+      .eq('thread_id', id)
+      .order('created_at', { ascending: true })
+      .limit(300)
+    setMessages((data as Msg[]) ?? [])
+  }, [id, supabase])
+
+  const muteSender = async (uid: string) => {
+    const { error: muteErr } = await supabase.rpc('mute_member', { p_thread: id, p_user: uid })
+    if (muteErr) return setError('숨기지 못했어요')
+    mutedRef.current.add(uid)
+    setMessages((prev) => prev.filter((x) => x.sender_id !== uid))
+    await loadMuted()
+  }
+
+  const unmuteMember = async (uid: string) => {
+    const { error: unErr } = await supabase.rpc('unmute_member', { p_user: uid })
+    if (unErr) return setError('해제하지 못했어요')
+    await loadMuted()
+    await reloadMessages()
+  }
 
   // Count of other members who had read the room at or after this message was sent.
   const readCountOf = (m: Msg) =>
@@ -117,7 +152,10 @@ export default function ChatThreadPage() {
       setPartner({ id: thread.partner_id ?? '', company: thread.alias || thread.partner_company })
       setPinned(thread.pinned === true)
       setIsGroup(thread.is_group === true)
-      if (thread.is_group === true) await loadMembers()
+      if (thread.is_group === true) {
+        await loadMembers()
+        await loadMuted()
+      }
       const { data: receiptOn } = await supabase.rpc('get_my_read_receipts')
       setReceipts(receiptOn !== false)
 
@@ -140,6 +178,7 @@ export default function ChatThreadPage() {
           { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `thread_id=eq.${id}` },
           (payload) => {
             const row = payload.new as Msg
+            if (mutedRef.current.has(row.sender_id)) return
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
             if (row.sender_id !== user.id) void markRead(user.id)
           }
@@ -385,6 +424,9 @@ export default function ChatThreadPage() {
               {isGroup && (
                 <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void openInvite() }}>친구 초대</button>
               )}
+              {isGroup && (
+                <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); setMutePanelOpen((v) => !v) }}>숨긴 멤버 관리 ({muted.length})</button>
+              )}
               {!isGroup && partner?.id && (
                 <button type="button" role="menuitem" style={{ ...MENU_ITEM, color: '#d32f2f' }} onClick={() => { setMenuOpen(false); void blockPartner() }}>차단하기</button>
               )}
@@ -425,6 +467,27 @@ export default function ChatThreadPage() {
                 {invitePicked.length > 0 ? `${invitePicked.length}명 초대` : '친구를 골라 주세요'}
               </button>
             </>
+          )}
+        </div>
+      )}
+
+      {isGroup && mutePanelOpen && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>숨긴 멤버</span>
+            <button type="button" onClick={() => setMutePanelOpen(false)} aria-label="닫기" style={{ background: 'none', border: 0, fontSize: 18, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+          </div>
+          {muted.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>숨긴 멤버가 없어요. 메시지 아래 "숨기기"로 숨길 수 있어요.</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+              {muted.map((m) => (
+                <li key={m.user_id} className="info-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span className="truncate">{m.display_name || '회원'}</span>
+                  <button type="button" className="btn btn-ghost" onClick={() => unmuteMember(m.user_id)}>해제</button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
@@ -537,6 +600,11 @@ export default function ChatThreadPage() {
                             {savingId === m.id ? '저장 중...' : '내 목록에 저장'}
                           </button>
                         )
+                      )}
+                      {!mine && isGroup && (
+                        <button type="button" onClick={() => muteSender(m.sender_id)} style={{ fontSize: 11, color: '#8a8a8a', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
+                          숨기기
+                        </button>
                       )}
                       {!mine && (
                         <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: '#8a8a8a', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
