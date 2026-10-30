@@ -70,6 +70,14 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [pageIdx, setPageIdx] = useState(0)
   const pageIdxRef = useRef(0) // survives book re-creation (e.g. on rotation)
   const [views, setViews] = useState(flipbook.views || 0)
+  // Signed-in visitors (normally the owner) get a way back to My Book.
+  const [signedIn, setSignedIn] = useState(false)
+  useEffect(() => {
+    createClient()
+      .auth.getSession()
+      .then(({ data }) => setSignedIn(!!data.session))
+      .catch(() => setSignedIn(false))
+  }, [])
   const [soundOn, setSoundOn] = useState(true)
   const [zoomIdx, setZoomIdx] = useState<number | null>(null)
   // Vertical swipe toggles the chrome (header and controls), like a video player.
@@ -353,6 +361,11 @@ export default function Viewer({ flipbook, pages }: Props) {
           <div className="viewer-meta">조회 {views.toLocaleString()}회</div>
         </div>
         <div className="viewer-top-actions">
+          {signedIn && (
+            <a className="btn btn-dark viewer-pill" href="/dashboard/folders">
+              ← 목록
+            </a>
+          )}
           {hasPages && (
             <button
               type="button"

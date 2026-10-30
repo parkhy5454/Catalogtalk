@@ -458,7 +458,7 @@ export default function MyBookPage() {
                         뷰어 변환
                       </button>
                     ) : (
-                      <a className="btn btn-primary" href={`/b/${fb.slug}`} target="_blank" rel="noopener">
+                      <a className="btn btn-primary" href={`/b/${fb.slug}`}>
                         보기
                       </a>
                     )}
