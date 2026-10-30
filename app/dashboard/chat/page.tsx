@@ -125,7 +125,7 @@ export default function ChatListPage() {
           <div className="notice notice-error" style={{ marginTop: 12 }}>{error}</div>
         ) : threads.length === 0 ? (
           <div className="notice notice-info" style={{ marginTop: 12 }}>
-            아직 대화가 없어요. 상대의 친구 코드를 입력해 대화를 시작해 보세요.
+            아직 대화가 없어요. 친구·단체 버튼으로 친구를 찾아 대화를 시작해 보세요.
           </div>
         ) : (
           <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 8 }}>
