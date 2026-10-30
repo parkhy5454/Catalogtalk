@@ -26,6 +26,8 @@ export default function ChatListPage() {
   const [loaded, setLoaded] = useState(false)
   const [threads, setThreads] = useState<Thread[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [discoverable, setDiscoverable] = useState(true)
+  const [readReceipts, setReadReceipts] = useState(true)
 
   const togglePin = async (t: Thread) => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -44,9 +46,30 @@ export default function ChatListPage() {
     else setThreads((data as Thread[]) ?? [])
   }, [supabase])
 
+  const toggleReceipts = async () => {
+    const next = !readReceipts
+    const { error } = await supabase.rpc('set_read_receipts', { p_on: next })
+    if (!error) setReadReceipts(next)
+  }
+
+  const toggleDiscoverable = async () => {
+    const next = !discoverable
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { error } = await supabase.from('customers').update({ discoverable: next }).eq('user_id', user.id)
+    if (!error) setDiscoverable(next)
+  }
+
   useEffect(() => {
     ;(async () => {
       await load()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: me } = await supabase.from('customers').select('discoverable').eq('user_id', user.id).maybeSingle()
+        setDiscoverable(me?.discoverable !== false)
+      }
+      const { data: receiptOn } = await supabase.rpc('get_my_read_receipts')
+      setReadReceipts(receiptOn !== false)
       setLoaded(true)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -59,6 +82,29 @@ export default function ChatListPage() {
           <h1 className="panel-title">대화</h1>
           <Link href="/dashboard/chat/new" className="btn btn-primary">친구·단체</Link>
         </div>
+
+        {loaded && (
+          <div className="info-box" style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+            <button
+              type="button"
+              onClick={toggleDiscoverable}
+              aria-pressed={discoverable}
+              style={{ display: 'flex', justifyContent: 'space-between', background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', fontSize: 14 }}
+            >
+              <span>{discoverable ? '🔎 회원 검색에 나오기: 켜짐' : '🔎 회원 검색에 나오기: 꺼짐'}</span>
+              <span aria-hidden="true">›</span>
+            </button>
+            <button
+              type="button"
+              onClick={toggleReceipts}
+              aria-pressed={readReceipts}
+              style={{ display: 'flex', justifyContent: 'space-between', background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', fontSize: 14 }}
+            >
+              <span>{readReceipts ? '👀 읽음 표시: 켜짐' : '👀 읽음 표시: 꺼짐'}</span>
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
+        )}
 
         {!loaded ? (
           <div className="skeleton" style={{ height: 160 }} aria-hidden="true" />
