@@ -1556,3 +1556,32 @@ body {
   font-size: 15px;
 }
 .fb-swipe-delete:disabled { opacity: 0.6; }
+
+/* ---------- Landing: yellow brand palette (matches the app screens) ---------- */
+.landing {
+  background: var(--yellow);
+  color: var(--ink);
+}
+.landing-logo { color: var(--ink); }
+.landing .btn-dark { background: var(--ink); color: #fff; }
+.landing .btn-coral { background: var(--ink); color: var(--yellow); }
+.landing .hero-tag {
+  background: rgba(17, 17, 17, 0.08);
+  color: var(--ink);
+}
+.landing .hero-title { color: var(--ink); }
+.landing .hero-title em {
+  color: var(--ink);
+  background: #fff;
+  padding: 0 8px;
+  border-radius: 10px;
+}
+.landing .hero-sub { color: rgba(17, 17, 17, 0.78); }
+.landing .feature-card {
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.landing .feature-card h3 { color: var(--ink); }
+.landing .feature-card p { color: rgba(17, 17, 17, 0.75); }
