@@ -58,7 +58,8 @@ export default function ProfilePage() {
     setSavingInfo(true)
     setInfoMsg(null)
     // RLS plus the column grant in schema.sql limit this update to name, phone and company.
-    const { error } = await supabase
+    // .select() returns the updated rows: an update that matched nothing is not a success.
+    const { data: updated, error } = await supabase
       .from('customers')
       .update({
         name: name.trim() || null,
@@ -66,8 +67,11 @@ export default function ProfilePage() {
         company_name: company.trim() || null,
       })
       .eq('user_id', userId)
+      .select('user_id')
     setSavingInfo(false)
     if (error) setInfoMsg({ ok: false, text: '저장하지 못했어요: ' + error.message })
+    else if (!updated || updated.length === 0)
+      setInfoMsg({ ok: false, text: '저장되지 않았어요. 고객 정보가 없는 계정일 수 있어요. 관리자에게 알려 주세요.' })
     else setInfoMsg({ ok: true, text: '✅ 내 정보를 저장했어요' })
   }
 
