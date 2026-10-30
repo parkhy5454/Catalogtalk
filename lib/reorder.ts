@@ -17,7 +17,7 @@ export async function sendReorderReminders(): Promise<{ sent: number; failed: nu
   const svc = createServiceClient()
   const { data: books } = await svc
     .from('flipbooks')
-    .select('id, title, slug, reorder_days')
+    .select('id, title, slug, reorder_days, order_requires_subscription')
     .not('reorder_days', 'is', null)
   let sent = 0
   let failed = 0
@@ -41,7 +41,15 @@ export async function sendReorderReminders(): Promise<{ sent: number; failed: nu
       if (!latest.has(key)) latest.set(key, { id: o.id as string, created_at: o.created_at as string })
     }
 
-    const due = Array.from(latest.entries()).filter(([, o]) => new Date(o.created_at).getTime() <= cutoff)
+    let due = Array.from(latest.entries()).filter(([, o]) => new Date(o.created_at).getTime() <= cutoff)
+    if (b.order_requires_subscription && due.length > 0) {
+      // Subscription-only catalogs: remind only buyers with an active subscription.
+      const { data: subs } = await svc
+        .from('buyer_subscriptions').select('contact')
+        .eq('flipbook_id', b.id).eq('status', 'active').gt('current_period_end', new Date().toISOString())
+      const subscribed = new Set((subs ?? []).map((r) => String(r.contact)))
+      due = due.filter(([contact]) => subscribed.has(contact))
+    }
     if (due.length === 0) continue
 
     const { data: already } = await svc

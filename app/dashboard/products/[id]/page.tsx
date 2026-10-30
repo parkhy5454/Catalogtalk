@@ -24,6 +24,7 @@ export default function ProductsPage() {
   const [notFound, setNotFound] = useState(false)
   const [orderOn, setOrderOn] = useState(false)
   const [reorder, setReorder] = useState('')
+  const [subOnly, setSubOnly] = useState(false)
   const [products, setProducts] = useState<Product[] | null>(null)
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
@@ -36,7 +37,7 @@ export default function ProductsPage() {
 
   const load = useCallback(async () => {
     const [book, rows] = await Promise.all([
-      supabase.from('flipbooks').select('title, page_count, order_form, reorder_days').eq('id', id).maybeSingle(),
+      supabase.from('flipbooks').select('title, page_count, order_form, reorder_days, order_requires_subscription').eq('id', id).maybeSingle(),
       supabase.from('catalog_products').select('id, name, price, unit, options, page_no').eq('flipbook_id', id).order('page_no', { ascending: true }).order('created_at', { ascending: true }),
     ])
     if (!book.data) return setNotFound(true)
@@ -44,6 +45,7 @@ export default function ProductsPage() {
     setPageCount(book.data.page_count ?? 0)
     setOrderOn(book.data.order_form === true)
     setReorder(book.data.reorder_days ? String(book.data.reorder_days) : '')
+    setSubOnly(book.data.order_requires_subscription === true)
     setProducts((rows.data as Product[]) ?? [])
   }, [id])
 
@@ -51,7 +53,7 @@ export default function ProductsPage() {
     void load()
   }, [load])
 
-  const saveSettings = async (patch: { order_form?: boolean; reorder_days?: number | null }) => {
+  const saveSettings = async (patch: { order_form?: boolean; reorder_days?: number | null; order_requires_subscription?: boolean }) => {
     const { error } = await supabase.from('flipbooks').update(patch).eq('id', id)
     if (error) return setNotice({ kind: 'error', text: '저장하지 못했어요' })
     await load()
@@ -142,6 +144,10 @@ export default function ProductsPage() {
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
             <input type="checkbox" checked={orderOn} onChange={(e) => saveSettings({ order_form: e.target.checked })} />
             열람 중 주문 요청 받기 (결제는 아직 없어요)
+          </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
+            <input type="checkbox" checked={subOnly} onChange={(e) => saveSettings({ order_requires_subscription: e.target.checked })} />
+            주문은 구독자만 (구독 기능은 준비 중이에요)
           </label>
           <label className="field">
             <span className="field-label">재구매 알림 (한 번 주문한 분께, 마지막 주문 후)</span>
