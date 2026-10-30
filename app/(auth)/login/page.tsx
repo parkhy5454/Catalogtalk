@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  const [needsConfirm, setNeedsConfirm] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -22,12 +23,37 @@ export default function LoginPage() {
     setInfo('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setError(error.message)
+      const msg = error.message.toLowerCase()
+      setNeedsConfirm(msg.includes('not confirmed'))
+      setError(
+        msg.includes('invalid login credentials')
+          ? '이메일 또는 비밀번호가 맞지 않아요.'
+          : msg.includes('not confirmed')
+            ? '이메일 인증이 아직 안 됐어요. 메일의 인증 링크를 눌러 주세요.'
+            : error.message
+      )
       setLoading(false)
     } else {
       router.push('/dashboard')
       router.refresh()
     }
+  }
+
+  const resendConfirm = async () => {
+    if (!email) {
+      setError('이메일을 입력해 주세요')
+      return
+    }
+    setLoading(true)
+    setError('')
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
+    })
+    setLoading(false)
+    if (error) setError('인증 메일을 다시 보내지 못했어요. 잠시 후 다시 시도해 주세요.')
+    else setInfo('📧 인증 메일을 다시 보냈어요. 메일함을 확인해 주세요.')
   }
 
   const handleMagicLink = async () => {
@@ -91,6 +117,16 @@ export default function LoginPage() {
             {loading ? '로그인 중...' : '로그인'}
           </button>
         </form>
+
+        {needsConfirm && (
+          <button type="button" onClick={resendConfirm} disabled={loading} className="btn btn-ghost btn-block" style={{ marginTop: 8 }}>
+            인증 메일 다시 보내기
+          </button>
+        )}
+
+        <div style={{ textAlign: 'center', marginTop: 12, fontSize: 13 }}>
+          <Link href="/forgot" style={{ color: 'inherit', textDecoration: 'underline' }}>비밀번호를 잊으셨나요?</Link>
+        </div>
 
         <button
           type="button"

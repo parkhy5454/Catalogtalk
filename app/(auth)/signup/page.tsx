@@ -15,7 +15,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [company, setCompany] = useState('')
   const [ref, setRef] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -52,10 +51,10 @@ export default function SignupPage() {
       email,
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
         data: {
           name: name.trim(),
           phone: phone.trim(),
-          company_name: company.trim(),
           ...(ref ? { ref } : {}),
         },
       },
@@ -119,24 +118,13 @@ export default function SignupPage() {
               />
             </label>
             <label className="field">
-              <span className="sr-only">회사명</span>
-              <input
-                className="input"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                onFocus={scrollIntoViewOnFocus}
-                placeholder="회사명 (선택)"
-                autoComplete="organization"
-              />
-            </label>
-            <label className="field">
-              <span className="sr-only">업무용 이메일</span>
+              <span className="sr-only">이메일</span>
               <input
                 className="input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onFocus={scrollIntoViewOnFocus}
-                placeholder="업무용 이메일"
+                placeholder="이메일"
                 type="email"
                 inputMode="email"
                 autoComplete="email"
@@ -165,6 +153,9 @@ export default function SignupPage() {
 
         <div className="auth-foot">
           이미 계정이 있나요? <Link href="/login">로그인</Link>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--muted)' }}>
+<Link href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>개인정보 처리방침</Link>
         </div>
       </div>
     </div>

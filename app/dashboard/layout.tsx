@@ -14,8 +14,8 @@ const LEFT_TABS = [
   { href: '/dashboard/folders', label: 'My Book', icon: '📚', match: ['/dashboard/folders'] },
 ] as const
 const RIGHT_TABS = [
-  { href: '/dashboard/referral', label: '친구 추천', icon: '🎁', match: ['/dashboard/referral'] },
-  { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin'] },
+  { href: '/dashboard/chat', label: '대화', icon: '💬', match: ['/dashboard/chat'] },
+  { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin', '/dashboard/referral'] },
 ] as const
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -50,9 +50,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="brand-mark" aria-hidden="true">C</span>
           <span className="brand-name" style={{ color: '#fff' }}>{SITE_NAME}</span>
         </Link>
-        <button type="button" onClick={handleLogout} className="btn app-header-btn">
-          로그아웃
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link href="/dashboard/referral" className="btn app-header-btn">🎁 친구 추천</Link>
+          <button type="button" onClick={handleLogout} className="btn app-header-btn">
+            로그아웃
+          </button>
+        </div>
       </header>
 
       <div className="container" style={{ paddingTop: 12 }}>

@@ -76,10 +76,6 @@ export default function SettingsPage() {
             <span>👤 내 정보</span>
             <span aria-hidden="true">›</span>
           </Link>
-          <Link className="menu-item" href="/privacy">
-            <span>📄 개인정보 처리방침</span>
-            <span aria-hidden="true">›</span>
-          </Link>
           {isAdmin && (
             <Link className="menu-item" href="/dashboard/admin">
               <span>🛠 관리자 보드</span>

@@ -32,7 +32,9 @@ export default function ReferralPage() {
 
   const link = code && origin ? `${origin}/signup?ref=${code}` : ''
   const inviteSubject = '[카탈로그톡] 플립북 만들기 초대'
-  const inviteText = link
+  const inviteText = code
+    ? `${link}\n친구 코드: ${code} (대화 탭 → 새 대화에서 입력)`
+    : link
     ? `카탈로그톡에 가입하고 플립북을 만들어 보세요. 이 링크로 가입하면 나와 친구 모두 플립북을 1개씩 더 만들 수 있어요.\n${link}`
     : ''
 
@@ -58,6 +60,19 @@ export default function ReferralPage() {
         <div className="panel-head">
           <h1 className="panel-title" id="referral-title">친구 추천</h1>
         </div>
+
+        {code && (
+          <div className="info-box" style={{ marginBottom: 12 }}>
+            <div className="info-label">내 친구 코드</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+              <strong style={{ fontSize: 20, letterSpacing: 2 }}>{code}</strong>
+              <button type="button" className="btn btn-ghost" onClick={() => copyText(code)}>코드 복사</button>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+              상대가 대화 탭의 새 대화에서 이 코드를 입력하면 대화를 시작할 수 있어요.
+            </div>
+          </div>
+        )}
 
         <div className="stats" aria-label="추천 요약">
           <div className="stat stat-dark">
