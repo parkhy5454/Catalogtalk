@@ -1032,3 +1032,37 @@ end;
 $$;
 grant execute on function send_friend_request(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 20. No daily limit on adding friends (v20) ---------------------------------
+-- Removes the 20-per-day cap. Reports (신고) remain the only way to flag unwanted contact.
+create or replace function send_friend_request(p_to uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_to = me then raise exception '자기 자신과는 친구가 될 수 없어요'; end if;
+  if not exists (select 1 from customers where user_id = p_to and discoverable) then
+    raise exception '이 회원을 추가할 수 없어요';
+  end if;
+
+  select t.id into tid from chat_threads t
+    where t.user_a = least(me, p_to) and t.user_b = greatest(me, p_to);
+  if tid is not null then return tid; end if;
+
+  insert into chat_friend_requests (from_id, to_id, status, responded_at)
+  values (me, p_to, 'accepted', now())
+  on conflict (from_id, to_id) do update set status = 'accepted', responded_at = now();
+
+  insert into chat_threads (user_a, user_b)
+  values (least(me, p_to), greatest(me, p_to))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+grant execute on function send_friend_request(uuid) to authenticated;
+notify pgrst, 'reload schema';

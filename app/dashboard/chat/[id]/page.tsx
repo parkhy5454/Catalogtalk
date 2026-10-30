@@ -2,7 +2,7 @@
 // One business conversation: live messages, catalog cards, report and block.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Msg = {
@@ -23,7 +23,6 @@ function timeOf(iso: string) {
 
 export default function ChatThreadPage() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
   const supabase = createClient()
   const [me, setMe] = useState<string | null>(null)
   const [partner, setPartner] = useState<{ id: string; company: string | null } | null>(null)
@@ -164,18 +163,6 @@ export default function ChatThreadPage() {
     setPinned(!pinned)
   }
 
-  const block = async () => {
-    if (!me || !partner) return
-    const ok = window.confirm('이 회사를 차단할까요?\n차단하면 이 대화방이 목록에서 사라지고 서로 메시지를 보낼 수 없어요.')
-    if (!ok) return
-    const { error: blockErr } = await supabase.from('chat_blocks').insert({ blocker_id: me, blocked_id: partner.id })
-    if (blockErr) {
-      setError('차단하지 못했어요')
-      return
-    }
-    router.push('/dashboard/chat')
-  }
-
   if (!loaded) {
     return (
       <main className="container section">
@@ -201,7 +188,6 @@ export default function ChatThreadPage() {
         <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
           {pinned ? '고정 해제' : '고정'}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={block}>차단</button>
       </div>
 
       {error && <div className="notice notice-error" role="alert" style={{ marginBottom: 10 }}>{error}</div>}
