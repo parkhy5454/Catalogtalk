@@ -2704,3 +2704,43 @@ $$;
 grant execute on function get_translation_langs(text), get_translations(text, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 36. Email notices to marketing-consented leads (v36) ----------------------
+
+-- Each lead gets a private token for the one-click 수신거부 link in every notice.
+alter table flipbook_leads add column if not exists unsubscribe_token uuid not null default gen_random_uuid();
+create unique index if not exists flipbook_leads_unsub_idx on flipbook_leads (unsubscribe_token);
+
+-- Log of notices sent (owner can read, server writes).
+create table if not exists notify_sends (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid references flipbooks(id) on delete set null,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  channel text not null default 'email' check (channel in ('email')),
+  subject text not null,
+  recipient_count int not null,
+  status text not null check (status in ('sent', 'partial', 'failed')),
+  created_at timestamptz not null default now()
+);
+create index if not exists notify_sends_owner_idx on notify_sends (owner_id, created_at);
+
+alter table notify_sends enable row level security;
+drop policy if exists notify_sends_owner_select on notify_sends;
+create policy notify_sends_owner_select on notify_sends for select to authenticated
+  using (owner_id = auth.uid());
+
+-- How many leads of this catalog can get an email: marketing consent + an email address.
+-- Returns 0 unless the caller can manage the catalog.
+create or replace function count_notify_recipients(p_flipbook uuid)
+returns int
+language sql stable security definer set search_path = public
+as $$
+  select case when can_manage_flipbook(p_flipbook) then (
+    select count(*)::int from flipbook_leads l
+    where l.flipbook_id = p_flipbook and l.marketing_consent and l.contact like '%@%'
+  ) else 0 end;
+$$;
+revoke all on function count_notify_recipients(uuid) from public, anon;
+grant execute on function count_notify_recipients(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

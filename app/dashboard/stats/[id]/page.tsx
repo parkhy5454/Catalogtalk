@@ -311,6 +311,16 @@ export default function FlipbookStatsPage() {
         </div>
       </section>
 
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="notify-card-title">
+        <h2 className="panel-title" id="notify-card-title" style={{ fontSize: 16 }}>알림 보내기</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          리드 중 소식 수신에 동의한 분께 새 자료 소식을 이메일로 보내요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/notify/${id}`} className="btn btn-ghost">알림 보내기</Link>
+        </div>
+      </section>
+
       <section className="panel" style={{ marginTop: 16 }} aria-labelledby="trans-card-title">
         <h2 className="panel-title" id="trans-card-title" style={{ fontSize: 16 }}>다국어 번역</h2>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
