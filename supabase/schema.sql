@@ -835,3 +835,155 @@ as $$
 $$;
 grant execute on function list_chat_threads() to authenticated;
 notify pgrst, 'reload schema';
+
+-- 18. Member search and friend requests (v18) ------------------------------
+-- Members search each other by name or company, send a friend request, and chat once it is
+-- accepted. A rejected request cannot be sent again. Each member may send 20 requests a day.
+alter table customers add column if not exists discoverable boolean not null default true;
+grant update (discoverable) on customers to authenticated;
+
+create table if not exists chat_friend_requests (
+  id uuid primary key default gen_random_uuid(),
+  from_id uuid not null references auth.users(id) on delete cascade,
+  to_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected')),
+  created_at timestamptz not null default now(),
+  responded_at timestamptz,
+  check (from_id <> to_id),
+  unique (from_id, to_id)
+);
+alter table chat_friend_requests enable row level security;
+-- No direct table access from the browser: everything goes through the functions below.
+
+create or replace function search_members(p_query text)
+returns table (user_id uuid, display_name text, company_name text, relation text, thread_id uuid)
+language sql stable security definer set search_path = public
+as $$
+  select
+    c.user_id,
+    coalesce(c.company_name, c.name),
+    c.company_name,
+    case
+      when exists (select 1 from chat_threads t where (t.user_a = least(auth.uid(), c.user_id) and t.user_b = greatest(auth.uid(), c.user_id))) then 'friend'
+      when exists (select 1 from chat_friend_requests r where r.from_id = auth.uid() and r.to_id = c.user_id and r.status = 'pending') then 'sent'
+      when exists (select 1 from chat_friend_requests r where r.from_id = c.user_id and r.to_id = auth.uid() and r.status = 'pending') then 'received'
+      when exists (select 1 from chat_friend_requests r where r.from_id = auth.uid() and r.to_id = c.user_id and r.status = 'rejected') then 'rejected'
+      else 'none'
+    end,
+    (select t.id from chat_threads t where t.user_a = least(auth.uid(), c.user_id) and t.user_b = greatest(auth.uid(), c.user_id))
+  from customers c
+  where auth.uid() is not null
+    and c.discoverable
+    and c.user_id <> auth.uid()
+    and char_length(trim(p_query)) >= 2
+    and (c.company_name ilike '%' || trim(p_query) || '%' or c.name ilike '%' || trim(p_query) || '%')
+    and not is_blocked_between(c.user_id, auth.uid())
+  order by coalesce(c.company_name, c.name)
+  limit 20
+$$;
+
+create or replace function send_friend_request(p_to uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  rid uuid;
+  today_count int;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_to = me then raise exception '자기 자신에게는 신청할 수 없어요'; end if;
+  if not exists (select 1 from customers where user_id = p_to and discoverable) then
+    raise exception '이 회원에게는 신청할 수 없어요';
+  end if;
+  if is_blocked_between(me, p_to) then raise exception '이 회원에게는 신청할 수 없어요'; end if;
+  if exists (select 1 from chat_friend_requests where from_id = p_to and to_id = me and status = 'pending') then
+    raise exception '상대가 먼저 신청했어요. 받은 신청에서 수락해 주세요';
+  end if;
+  if exists (select 1 from chat_friend_requests where from_id = me and to_id = p_to and status = 'accepted') then
+    raise exception '이미 친구예요';
+  end if;
+  if exists (select 1 from chat_friend_requests where from_id = me and to_id = p_to and status = 'pending') then
+    raise exception '이미 신청했어요. 상대의 답을 기다려 주세요';
+  end if;
+  if exists (select 1 from chat_friend_requests where from_id = me and to_id = p_to and status = 'rejected') then
+    raise exception '거절된 신청은 다시 보낼 수 없어요';
+  end if;
+  select count(*) into today_count from chat_friend_requests
+    where from_id = me and created_at > now() - interval '1 day';
+  if today_count >= 20 then raise exception '하루에 보낼 수 있는 친구 신청(20건)을 모두 썼어요'; end if;
+
+  insert into chat_friend_requests (from_id, to_id) values (me, p_to) returning id into rid;
+  return rid;
+end;
+$$;
+
+create or replace function respond_friend_request(p_id uuid, p_accept boolean)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  r chat_friend_requests%rowtype;
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  select * into r from chat_friend_requests where id = p_id and to_id = me and status = 'pending';
+  if not found then raise exception '처리할 신청을 찾지 못했어요'; end if;
+
+  if not p_accept then
+    update chat_friend_requests set status = 'rejected', responded_at = now() where id = r.id;
+    return null;
+  end if;
+
+  update chat_friend_requests set status = 'accepted', responded_at = now() where id = r.id;
+  insert into chat_threads (user_a, user_b)
+  values (least(r.from_id, r.to_id), greatest(r.from_id, r.to_id))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+
+create or replace function list_friend_requests()
+returns table (
+  request_id uuid, direction text, other_id uuid, display_name text, created_at timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select r.id,
+         case when r.to_id = auth.uid() then 'received' else 'sent' end,
+         case when r.to_id = auth.uid() then r.from_id else r.to_id end,
+         (select coalesce(c.company_name, c.name) from customers c
+            where c.user_id = case when r.to_id = auth.uid() then r.from_id else r.to_id end),
+         r.created_at
+  from chat_friend_requests r
+  where r.status = 'pending' and (r.from_id = auth.uid() or r.to_id = auth.uid())
+  order by r.created_at desc
+$$;
+
+-- Chat is allowed only between accepted friends.
+create or replace function open_chat(p_other uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_other = me then raise exception '자기 자신과는 대화할 수 없어요'; end if;
+  if is_blocked_between(me, p_other) then raise exception '대화할 수 없는 상대예요'; end if;
+  select t.id into tid from chat_threads t
+    where t.user_a = least(me, p_other) and t.user_b = greatest(me, p_other);
+  if tid is null then raise exception '친구가 된 뒤에 대화할 수 있어요'; end if;
+  return tid;
+end;
+$$;
+
+grant execute on function search_members(text) to authenticated;
+grant execute on function send_friend_request(uuid) to authenticated;
+grant execute on function respond_friend_request(uuid, boolean) to authenticated;
+grant execute on function list_friend_requests() to authenticated;
+grant execute on function open_chat(uuid) to authenticated;
+notify pgrst, 'reload schema';
