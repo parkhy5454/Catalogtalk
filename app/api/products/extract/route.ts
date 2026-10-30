@@ -20,12 +20,23 @@ type Extracted = {
   unit: string | null
   options: string | null
   description: string | null
+  bbox: [number, number, number, number] | null
 }
 
 function cut(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null
   const t = v.trim()
   return t ? t.slice(0, max) : null
+}
+
+// Keeps a photo box only when it is four numbers in 0..1 with a positive size.
+function cleanBbox(v: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(v) || v.length !== 4) return null
+  const n = v.map((x) => (typeof x === 'number' ? x : Number.NaN))
+  if (n.some((x) => !Number.isFinite(x) || x < 0 || x > 1)) return null
+  const [x, y, w, h] = n
+  if (w <= 0 || h <= 0 || x + w > 1.001 || y + h > 1.001) return null
+  return [x, y, w, h].map((x) => Math.round(x * 10000) / 10000) as [number, number, number, number]
 }
 
 function parseProducts(text: string): Extracted[] {
@@ -51,6 +62,7 @@ function parseProducts(text: string): Extracted[] {
       unit: cut(o.unit, 20),
       options: cut(o.options, 300),
       description: cut(o.description, 500),
+      bbox: cleanBbox(o.bbox),
     })
   }
   return out
@@ -95,7 +107,7 @@ export async function POST(req: Request) {
   const prompt =
     '이 카탈로그 페이지에 있는 상품을 모두 찾아 JSON 배열로만 답하세요. 설명이나 다른 글은 쓰지 마세요. ' +
     '각 항목은 {"name": 상품명, "price": 숫자 가격(원, 없으면 null), "unit": 단위 또는 null, ' +
-    '"options": 옵션 글 또는 null, "description": 짧은 설명 또는 null} 형식이에요. ' +
+    '"options": 옵션 글 또는 null, "description": 짧은 설명 또는 null, "bbox": 상품 사진이 있는 영역을 쪽 크기 기준 [x, y, 가로, 세로] 비율 숫자 4개(0~1)로 쓰고, 사진이 없으면 null} 형식이에요. ' +
     '상품이 없으면 []만 답하세요. 가격은 원문 숫자를 그대로 쓰고, 확실하지 않은 값은 null로 두세요.'
 
   const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
