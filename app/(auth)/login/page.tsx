@@ -1,4 +1,5 @@
 'use client'
+import PasswordInput from '@/components/password-input'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -76,13 +77,12 @@ export default function LoginPage() {
           </label>
           <label className="field">
             <span className="field-label">비밀번호</span>
-            <input
+            <PasswordInput
               className="input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onFocus={scrollIntoViewOnFocus}
               placeholder="비밀번호"
-              type="password"
               autoComplete="current-password"
               required
             />

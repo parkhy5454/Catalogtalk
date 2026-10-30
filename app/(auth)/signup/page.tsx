@@ -1,4 +1,5 @@
 'use client'
+import PasswordInput from '@/components/password-input'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -135,13 +136,12 @@ export default function SignupPage() {
             </label>
             <label className="field">
               <span className="sr-only">비밀번호</span>
-              <input
+              <PasswordInput
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onFocus={scrollIntoViewOnFocus}
                 placeholder="비밀번호 (6자 이상)"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={6}
