@@ -2,7 +2,7 @@
 // One business conversation: live messages, catalog cards, report and block.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Msg = {
@@ -23,6 +23,7 @@ function timeOf(iso: string) {
 
 export default function ChatThreadPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const supabase = createClient()
   const [me, setMe] = useState<string | null>(null)
   const [partner, setPartner] = useState<{ id: string; company: string | null } | null>(null)
@@ -48,15 +49,14 @@ export default function ChatThreadPage() {
       if (!user) return setLoaded(true)
       setMe(user.id)
 
-      const { data: threads } = await supabase.rpc('list_chat_threads')
-      const thread = ((threads as { thread_id: string; partner_id: string; partner_company: string | null }[]) ?? [])
-        .find((t) => t.thread_id === id)
+      const { data: info } = await supabase.rpc('get_chat_thread', { p_id: id })
+      const thread = Array.isArray(info) ? info[0] : null
       if (!thread) {
         setLoaded(true)
         return
       }
-      setPartner({ id: thread.partner_id, company: thread.partner_company })
-      setPinned((thread as { pinned?: boolean }).pinned === true)
+      setPartner({ id: thread.partner_id, company: thread.alias || thread.partner_company })
+      setPinned(thread.pinned === true)
 
       const { data: rows, error: msgErr } = await supabase
         .from('chat_messages')
@@ -151,6 +151,23 @@ export default function ChatThreadPage() {
     if (!repErr) window.alert('신고가 접수됐어요. 운영팀이 확인할게요.')
   }
 
+  const rename = async () => {
+    const input = window.prompt('이 대화방에서만 보일 이름을 입력해 주세요 (비우면 원래 이름)', partner?.company ?? '')
+    if (input === null) return
+    const { error: aliasErr } = await supabase.rpc('set_chat_alias', { p_thread: id, p_alias: input })
+    if (aliasErr) return setError('이름을 바꾸지 못했어요')
+    setPartner((prev) => (prev ? { ...prev, company: input.trim() || prev.company } : prev))
+    setError(null)
+  }
+
+  const leave = async () => {
+    const ok = window.confirm('이 대화방을 목록에서 나갈까요?\n상대방 쪽 대화는 그대로 남아요. 새 메시지가 오면 다시 나타나요.')
+    if (!ok) return
+    const { error: leaveErr } = await supabase.rpc('leave_chat', { p_thread: id })
+    if (leaveErr) return setError('나가지 못했어요')
+    router.push('/dashboard/chat')
+  }
+
   const togglePin = async () => {
     if (!me) return
     if (pinned) {
@@ -185,6 +202,8 @@ export default function ChatThreadPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Link href="/dashboard/chat" className="btn btn-ghost">← 목록</Link>
         <strong className="truncate" style={{ flex: 1 }}>{partner.company || '사업자 회원'}</strong>
+        <button type="button" className="btn btn-ghost" onClick={rename}>이름</button>
+        <button type="button" className="btn btn-ghost" onClick={leave}>나가기</button>
         <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
           {pinned ? '고정 해제' : '고정'}
         </button>

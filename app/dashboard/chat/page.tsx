@@ -8,6 +8,7 @@ type Thread = {
   thread_id: string
   partner_id: string
   partner_company: string | null
+  alias: string | null
   last_message_at: string
   last_body: string | null
   unread: number
@@ -73,7 +74,7 @@ export default function ChatListPage() {
               <li key={t.thread_id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
                 <Link href={`/dashboard/chat/${t.thread_id}`} className="info-box" style={{ flex: 1, minWidth: 0, display: 'block', textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <strong className="truncate">{t.pinned ? '📌 ' : ''}{t.partner_company || '회원'}</strong>
+                    <strong className="truncate">{t.pinned ? '📌 ' : ''}{t.alias || t.partner_company || '회원'}</strong>
                     <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{when(t.last_message_at)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>

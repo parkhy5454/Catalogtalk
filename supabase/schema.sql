@@ -1066,3 +1066,126 @@ end;
 $$;
 grant execute on function send_friend_request(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 21. Nicknames and leaving a conversation (v21) ---------------------------
+-- Both are per member: a nickname only I see, and "leave" only hides the room from my list.
+-- A hidden room comes back by itself when the other person sends a new message.
+create table if not exists chat_thread_prefs (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  thread_id uuid not null references chat_threads(id) on delete cascade,
+  alias text check (char_length(alias) <= 30),
+  hidden_at timestamptz,
+  primary key (user_id, thread_id)
+);
+alter table chat_thread_prefs enable row level security;
+
+drop policy if exists chat_thread_prefs_own on chat_thread_prefs;
+create policy chat_thread_prefs_own on chat_thread_prefs for all to authenticated
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from chat_threads t
+      where t.id = thread_id and (t.user_a = auth.uid() or t.user_b = auth.uid())
+    )
+  );
+
+create or replace function set_chat_alias(p_thread uuid, p_alias text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  clean text := nullif(trim(coalesce(p_alias, '')), '');
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if not exists (select 1 from chat_threads t where t.id = p_thread and (t.user_a = me or t.user_b = me)) then
+    raise exception '대화를 찾을 수 없어요';
+  end if;
+  insert into chat_thread_prefs (user_id, thread_id, alias) values (me, p_thread, clean)
+  on conflict (user_id, thread_id) do update set alias = excluded.alias;
+end;
+$$;
+
+create or replace function leave_chat(p_thread uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if not exists (select 1 from chat_threads t where t.id = p_thread and (t.user_a = me or t.user_b = me)) then
+    raise exception '대화를 찾을 수 없어요';
+  end if;
+  insert into chat_thread_prefs (user_id, thread_id, hidden_at) values (me, p_thread, now())
+  on conflict (user_id, thread_id) do update set hidden_at = excluded.hidden_at;
+end;
+$$;
+
+-- Opening a conversation (also from search) brings it back into my list.
+create or replace function get_chat_thread(p_id uuid)
+returns table (partner_id uuid, partner_company text, alias text, pinned boolean)
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if not exists (select 1 from chat_threads t where t.id = p_id and (t.user_a = me or t.user_b = me)) then
+    return;
+  end if;
+  update chat_thread_prefs set hidden_at = null where user_id = me and thread_id = p_id;
+  return query
+    select
+      case when t.user_a = me then t.user_b else t.user_a end,
+      (select coalesce(c.company_name, c.name) from customers c
+        where c.user_id = case when t.user_a = me then t.user_b else t.user_a end),
+      (select p.alias from chat_thread_prefs p where p.user_id = me and p.thread_id = t.id),
+      exists (select 1 from chat_pins p where p.user_id = me and p.thread_id = t.id)
+    from chat_threads t
+    where t.id = p_id;
+end;
+$$;
+
+drop function if exists list_chat_threads();
+create function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text, alias text,
+  last_message_at timestamptz, last_body text, unread int, pinned boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.user_a = auth.uid() then t.user_b else t.user_a end,
+    (select coalesce(c.company_name, c.name) from customers c
+      where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end),
+    (select p.alias from chat_thread_prefs p where p.user_id = auth.uid() and p.thread_id = t.id),
+    t.last_message_at,
+    (select case when m.body <> '' then m.body else '[카탈로그] ' || coalesce(m.catalog_title, '') end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz)),
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid())
+  from chat_threads t
+  where (t.user_a = auth.uid() or t.user_b = auth.uid())
+    and not is_blocked_between(t.user_a, t.user_b)
+    and not exists (
+      select 1 from chat_thread_prefs p
+      where p.thread_id = t.id and p.user_id = auth.uid()
+        and p.hidden_at is not null and t.last_message_at <= p.hidden_at
+    )
+  order by
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()) desc,
+    t.last_message_at desc
+$$;
+
+grant execute on function set_chat_alias(uuid, text) to authenticated;
+grant execute on function leave_chat(uuid) to authenticated;
+grant execute on function get_chat_thread(uuid) to authenticated;
+grant execute on function list_chat_threads() to authenticated;
+notify pgrst, 'reload schema';
