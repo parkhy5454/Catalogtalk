@@ -3642,3 +3642,261 @@ revoke all on function get_customer_timeline(uuid) from public, anon;
 grant execute on function get_customer_timeline(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 47. Customer-specific catalog
+--   Price tiers (discount per tier, optional per-product price), promotions (period, product or tier),
+--   restricted products (visible only to chosen customers), and personal links (?t=token).
+--   The public product list never shows restricted products; customer prices come only from
+--   get_personal_products (token-checked) and submit_order (token-checked).
+-- ============================================================
+create table if not exists price_tiers (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 40),
+  discount_pct int not null default 0 check (discount_pct between 0 and 90),
+  created_at timestamptz not null default now()
+);
+alter table price_tiers enable row level security;
+drop policy if exists price_tiers_manage on price_tiers;
+create policy price_tiers_manage on price_tiers for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+alter table flipbook_leads add column if not exists tier_id uuid references price_tiers(id) on delete set null;
+
+create table if not exists product_tier_prices (
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  product_id uuid not null references catalog_products(id) on delete cascade,
+  tier_id uuid not null references price_tiers(id) on delete cascade,
+  price bigint not null check (price >= 0),
+  primary key (product_id, tier_id)
+);
+alter table product_tier_prices enable row level security;
+drop policy if exists product_tier_prices_manage on product_tier_prices;
+create policy product_tier_prices_manage on product_tier_prices for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+create table if not exists promotions (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  discount_pct int not null check (discount_pct between 1 and 90),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  product_id uuid references catalog_products(id) on delete cascade,
+  tier_id uuid references price_tiers(id) on delete cascade,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table promotions enable row level security;
+drop policy if exists promotions_manage on promotions;
+create policy promotions_manage on promotions for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+alter table catalog_products add column if not exists visibility text not null default 'all';
+alter table catalog_products drop constraint if exists catalog_products_visibility_chk;
+alter table catalog_products add constraint catalog_products_visibility_chk check (visibility in ('all', 'restricted'));
+
+create table if not exists product_access (
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  product_id uuid not null references catalog_products(id) on delete cascade,
+  lead_id uuid not null references flipbook_leads(id) on delete cascade,
+  primary key (product_id, lead_id)
+);
+alter table product_access enable row level security;
+drop policy if exists product_access_manage on product_access;
+create policy product_access_manage on product_access for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+create table if not exists customer_links (
+  token text primary key check (token ~ '^[A-Za-z0-9]{10,16}$'),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  lead_id uuid not null references flipbook_leads(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+alter table customer_links enable row level security;
+drop policy if exists customer_links_manage on customer_links;
+create policy customer_links_manage on customer_links for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+-- Discount for a product for one tier (or public when p_tier is null): the larger of the tier discount
+-- and the best promotion that applies. Discounts do not stack.
+create or replace function product_discount(p_product uuid, p_tier uuid) returns int
+language sql stable security definer set search_path = public
+as $$
+  select greatest(
+    coalesce((select t.discount_pct from price_tiers t where t.id = p_tier), 0),
+    coalesce((select max(pr.discount_pct) from promotions pr
+               join catalog_products cp on cp.id = p_product and pr.flipbook_id = cp.flipbook_id
+              where pr.active
+                and (pr.product_id is null or pr.product_id = p_product)
+                and (pr.tier_id is null or pr.tier_id = p_tier)
+                and (pr.starts_at is null or pr.starts_at <= now())
+                and (pr.ends_at is null or pr.ends_at > now())), 0)
+  );
+$$;
+
+-- Base price before discount: the tier's own price for the product, else the list price.
+create or replace function product_base_price(p_product uuid, p_tier uuid) returns bigint
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(
+    (select ptp.price from product_tier_prices ptp where ptp.product_id = p_product and ptp.tier_id = p_tier),
+    (select cp.price from catalog_products cp where cp.id = p_product)
+  );
+$$;
+
+create or replace function product_price_for(p_product uuid, p_tier uuid) returns bigint
+language sql stable security definer set search_path = public
+as $$
+  select round(b.base * (100 - product_discount(p_product, p_tier)) / 100.0)::bigint
+  from (select product_base_price(p_product, p_tier) as base) b
+  where b.base is not null;
+$$;
+
+create or replace function product_visible(p_product uuid, p_lead uuid) returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from catalog_products cp
+    where cp.id = p_product
+      and (cp.visibility = 'all'
+           or exists (select 1 from product_access pa where pa.product_id = cp.id and pa.lead_id = p_lead))
+  );
+$$;
+
+-- Public list: restricted products are never returned.
+drop function if exists get_products(text);
+create or replace function get_products(p_slug text)
+returns table (id uuid, name text, price bigint, unit text, options text, description text, page_no int, image_url text)
+language sql stable security definer set search_path = public
+as $$
+  select p.id, p.name, p.price, p.unit, p.options, p.description, p.page_no, p.image_url
+  from catalog_products p
+  join flipbooks f on f.id = p.flipbook_id
+  where f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now())
+    and p.visibility = 'all'
+  order by p.page_no nulls last, p.created_at;
+$$;
+grant execute on function get_products(text) to anon, authenticated;
+
+-- Customer list: the token must belong to this catalog and not be revoked.
+create or replace function get_personal_products(p_slug text, p_token text)
+returns table (id uuid, name text, price bigint, original_price bigint, discount_pct int,
+               unit text, options text, description text, page_no int, image_url text)
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_lead uuid;
+  v_tier uuid;
+  v_fb uuid;
+begin
+  select cl.lead_id, l.tier_id, cl.flipbook_id into v_lead, v_tier, v_fb
+    from customer_links cl
+    join flipbook_leads l on l.id = cl.lead_id
+    join flipbooks f on f.id = cl.flipbook_id
+    where cl.token = p_token and cl.revoked_at is null
+      and f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now());
+  if v_lead is null then return; end if;
+  return query
+    select p.id, p.name, product_price_for(p.id, v_tier), product_base_price(p.id, v_tier),
+           product_discount(p.id, v_tier), p.unit, p.options, p.description, p.page_no, p.image_url
+    from catalog_products p
+    where p.flipbook_id = v_fb and product_visible(p.id, v_lead)
+    order by p.page_no nulls last, p.created_at;
+end $$;
+grant execute on function get_personal_products(text, text) to anon, authenticated;
+
+-- Order requests now also take the customer's token; the price snapshot uses that customer's price.
+drop function if exists submit_order(uuid, text, text, text, text, jsonb, boolean, text, date);
+
+create or replace function submit_order(
+  p_flipbook uuid, p_name text, p_contact text, p_company text, p_memo text,
+  p_items jsonb, p_marketing boolean, p_session text, p_delivery date, p_token text default null
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_company text := nullif(btrim(coalesce(p_company, '')), '');
+  v_memo text := nullif(btrim(coalesce(p_memo, '')), '');
+  v_snapshot jsonb;
+  v_total bigint;
+  v_priced_all boolean;
+  v_count int;
+  v_lead uuid;
+  v_tier uuid;
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.order_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 주문을 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if exists (select 1 from flipbooks f where f.id = p_flipbook and f.order_requires_subscription)
+     and not buyer_has_subscription(p_flipbook, v_contact) then
+    raise exception '이 자료의 주문은 구독자만 보낼 수 있어요';
+  end if;
+  if p_delivery is not null and (p_delivery < current_date or p_delivery > current_date + 365) then
+    raise exception '납기일은 오늘부터 1년 안에서 골라 주세요';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) not between 1 and 50 then
+    raise exception '상품을 골라 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  if p_token is not null then
+    select cl.lead_id, l.tier_id into v_lead, v_tier
+      from customer_links cl join flipbook_leads l on l.id = cl.lead_id
+      where cl.token = p_token and cl.revoked_at is null and cl.flipbook_id = p_flipbook;
+    if v_lead is null then raise exception '고객 링크를 확인해 주세요'; end if;
+  end if;
+  if exists (select 1 from orders where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  if (select count(*) from orders where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 200 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+
+  -- Snapshot the chosen products at this customer's prices. Products this customer cannot see are skipped.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_id', p.id, 'name', p.name, 'price', product_price_for(p.id, v_tier), 'unit', p.unit,
+           'options', p.options, 'option', nullif(left(btrim(coalesce(i->>'option', '')), 60), ''),
+           'qty', least(greatest((i->>'qty')::int, 1), 999)
+         )), '[]'::jsonb),
+         coalesce(sum(product_price_for(p.id, v_tier) * least(greatest((i->>'qty')::int, 1), 999)), 0),
+         bool_and(product_price_for(p.id, v_tier) is not null)
+    into v_snapshot, v_total, v_priced_all
+  from jsonb_array_elements(p_items) as i
+  join catalog_products p on p.id = (i->>'product_id')::uuid and p.flipbook_id = p_flipbook
+  where product_visible(p.id, v_lead);
+
+  select jsonb_array_length(coalesce(v_snapshot, '[]'::jsonb)) into v_count;
+  if v_count = 0 then raise exception '고른 상품을 찾을 수 없어요'; end if;
+
+  insert into orders (flipbook_id, owner_id, buyer_name, buyer_contact, buyer_company, memo,
+                      items, total, marketing_consent, session_id, delivery_date, platform_fee)
+  values (p_flipbook, v_owner, v_name, v_contact, v_company, v_memo, v_snapshot,
+          case when coalesce(v_priced_all, false) then v_total else null end,
+          coalesce(p_marketing, false), p_session, p_delivery,
+          case when coalesce(v_priced_all, false) then round(v_total * 0.03)::bigint else null end);
+
+  if coalesce(p_marketing, false) then
+    if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and contact = v_contact) then
+      update flipbook_leads set marketing_consent = true
+        where flipbook_id = p_flipbook and contact = v_contact;
+    else
+      insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+      values (p_flipbook, v_owner, v_name, v_contact, true, p_session);
+    end if;
+  end if;
+end $$;
+revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date, text) from public;
+grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';

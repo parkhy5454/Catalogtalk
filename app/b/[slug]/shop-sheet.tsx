@@ -14,6 +14,8 @@ export type ShopProduct = {
   description: string | null
   page_no: number | null
   image_url?: string | null
+  original_price?: number | null
+  discount_pct?: number | null
 }
 
 type Props = {
@@ -22,6 +24,7 @@ type Props = {
   products: ShopProduct[]
   orderOn: boolean
   initialId?: string | null
+  token?: string | null
   onClose: () => void
 }
 
@@ -31,7 +34,7 @@ const field: React.CSSProperties = {
 }
 const btn: React.CSSProperties = { padding: 12, fontSize: 15, borderRadius: 10, border: 0, background: '#111', color: '#fff' }
 
-export default function ShopSheet({ flipbookId, session, products, orderOn, initialId, onClose }: Props) {
+export default function ShopSheet({ flipbookId, session, products, orderOn, initialId, token, onClose }: Props) {
   const [cart, setCart] = useState<Record<string, number>>(() => (initialId ? { [initialId]: 1 } : {}))
   const [choice, setChoice] = useState<Record<string, string>>({})
   const [delivery, setDelivery] = useState('')
@@ -75,6 +78,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, init
       p_marketing: marketing,
       p_session: session,
       p_delivery: delivery || null,
+      p_token: token ?? null,
     })
     setBusy(false)
     if (err) return setError(err.message || '보내지 못했어요. 잠시 후 다시 해 주세요.')
@@ -117,7 +121,11 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, init
                         <div style={{ minWidth: 0, fontSize: 14 }}>
                         <strong style={{ display: 'block' }}>{p.name}</strong>
                         <span style={{ color: '#777', fontSize: 12 }}>
+                          {p.original_price && p.price !== null && p.price < p.original_price ? (
+                            <><s style={{ color: '#999', marginRight: 4 }}>{p.original_price.toLocaleString('ko-KR')}원</s></>
+                          ) : null}
                           {p.price !== null ? `${p.price.toLocaleString('ko-KR')}원` : '가격 문의'}{p.unit ? ` / ${p.unit}` : ''}
+                          {p.discount_pct ? <span style={{ color: '#c0392b', marginLeft: 6 }}>{p.discount_pct}% 할인</span> : null}
                         </span>
                         {optionsOf(p).length > 0 && (
                           <select value={choice[p.id] ?? optionsOf(p)[0]} onChange={(e) => setChoice((c) => ({ ...c, [p.id]: e.target.value }))}

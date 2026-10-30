@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 
 type Product = {
   id: string; name: string; price: number | null; unit: string | null; options: string | null; page_no: number | null
-  description: string | null; image_url: string | null; bbox: number[] | null
+  description: string | null; image_url: string | null; bbox: number[] | null; visibility: string
 }
 const REMINDER_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: '끄기' },
@@ -45,7 +45,7 @@ export default function ProductsPage() {
   const load = useCallback(async () => {
     const [book, rows] = await Promise.all([
       supabase.from('flipbooks').select('title, page_count, order_form, reorder_days, order_requires_subscription').eq('id', id).maybeSingle(),
-      supabase.from('catalog_products').select('id, name, price, unit, options, page_no, description, image_url, bbox').eq('flipbook_id', id).order('page_no', { ascending: true }).order('created_at', { ascending: true }),
+      supabase.from('catalog_products').select('id, name, price, unit, options, page_no, description, image_url, bbox, visibility').eq('flipbook_id', id).order('page_no', { ascending: true }).order('created_at', { ascending: true }),
     ])
     if (!book.data) return setNotFound(true)
     setTitle(book.data.title)
@@ -95,6 +95,12 @@ export default function ProductsPage() {
     } catch (e) {
       setNotice({ kind: 'error', text: e instanceof Error ? e.message : '사진을 자르지 못했어요' })
     }
+  }
+
+  const setVisibility = async (p: Product, visibility: string) => {
+    const { error } = await createClient().from('catalog_products').update({ visibility }).eq('id', p.id)
+    if (error) return setNotice({ kind: 'error', text: '공개 설정을 바꾸지 못했어요' })
+    await load()
   }
 
   const writeDescription = async (p: Product) => {
@@ -253,7 +259,10 @@ export default function ProductsPage() {
       <section className="panel" style={{ marginTop: 16 }}>
         <h2 className="panel-title" style={{ fontSize: 16 }}>신제품 카탈로그</h2>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>고른 상품으로 새 카탈로그를 자동으로 만들어요.</p>
-        <Link href={`/dashboard/products/${id}/new-catalog`} className="btn btn-primary" style={{ marginTop: 10 }}>신제품 카탈로그 만들기</Link>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          <Link href={`/dashboard/products/${id}/new-catalog`} className="btn btn-primary">신제품 카탈로그 만들기</Link>
+          <Link href={`/dashboard/pricing/${id}`} className="btn btn-ghost">거래처 가격·할인 관리</Link>
+        </div>
       </section>
 
       <section className="panel" style={{ marginTop: 16 }}>
@@ -339,6 +348,10 @@ export default function ProductsPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                  <select className="input" value={p.visibility} onChange={(e) => setVisibility(p, e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }}>
+                    <option value="all">모두에게 공개</option>
+                    <option value="restricted">고객 전용</option>
+                  </select>
                   {p.bbox && !p.image_url && <button type="button" className="btn btn-ghost" onClick={() => cutPhoto(p)}>사진 자르기</button>}
                   {!p.description && <button type="button" className="btn btn-ghost" onClick={() => writeDescription(p)}>설명 쓰기</button>}
                   <button type="button" className="btn btn-ghost" onClick={() => remove(p)}>삭제</button>
