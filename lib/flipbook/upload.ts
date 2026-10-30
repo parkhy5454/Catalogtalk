@@ -2,8 +2,9 @@
 // Everything here runs with the signed-in user's session, so RLS applies.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { RenderResult } from '@/lib/flipbook/convert'
+import { PRIVATE_BUCKET, PRIVATE_PREFIX, PUBLIC_BUCKET, isPrivateRef, privatePathOf } from '@/lib/flipbook/storage'
 
-export const BUCKET = 'flipbook-files'
+export const BUCKET = PUBLIC_BUCKET
 export const MAX_PDF_BYTES = 50 * 1024 * 1024 // applies to every supported source file
 
 export type SourceKind = 'pdf' | 'docx'
@@ -74,19 +75,19 @@ async function uploadThumb(supabase: SupabaseClient, slug: string, blob: Blob) {
   return publicUrl(supabase, path)
 }
 
-/** Upload rendered page images and return their public URLs in page order. */
+/** Upload rendered page images to the private bucket. Returns stored references in page order. */
 async function uploadPages(supabase: SupabaseClient, slug: string, pages: Pages, onProgress?: (done: number, total: number) => void) {
   const urls: Record<number, string> = {}
   let done = 0
   await mapLimit(pages, UPLOAD_CONCURRENCY, async (p) => {
     const path = `${slug}/${pageName(p.pageNo, p.ext)}`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, p.blob, {
+    const { error } = await supabase.storage.from(PRIVATE_BUCKET).upload(path, p.blob, {
       contentType: p.ext === 'webp' ? 'image/webp' : 'image/jpeg',
       cacheControl: ASSET_CACHE,
       upsert: true,
     })
     if (error) throw new Error(`페이지 ${p.pageNo} 업로드 실패: ${error.message}`)
-    urls[p.pageNo] = publicUrl(supabase, path)
+    urls[p.pageNo] = PRIVATE_PREFIX + path
     done++
     onProgress?.(done, pages.length)
   })
@@ -125,7 +126,7 @@ export async function createFlipbook(
   // The original is public like the page images, but its file name carries an unguessable token,
   // so the address cannot be guessed from the catalog link.
   const originalPath = `${slug}/original-${crypto.randomUUID().replace(/-/g, '')}.${kind}`
-  const { error: srcErr } = await supabase.storage.from(BUCKET).upload(originalPath, opts.file, {
+  const { error: srcErr } = await supabase.storage.from(PRIVATE_BUCKET).upload(originalPath, opts.file, {
     contentType: SOURCE_MIME[kind],
     cacheControl: ASSET_CACHE,
     upsert: false,
@@ -138,7 +139,7 @@ export async function createFlipbook(
   )
 
   onStatus('저장 중...', 0.95)
-  const pdfUrl = publicUrl(supabase, originalPath)
+  const pdfUrl = PRIVATE_PREFIX + originalPath
   const thumbUrl = await uploadThumb(supabase, slug, thumbJpg)
 
   const { data: fb, error } = await supabase
@@ -177,7 +178,15 @@ export async function convertExisting(
 ): Promise<void> {
   if (!fb.pdf_url) throw new Error('원본 PDF 주소가 없어요')
   onStatus('원본 PDF 불러오는 중...', 0)
-  const res = await fetch(fb.pdf_url)
+  let sourceUrl = fb.pdf_url
+  if (isPrivateRef(fb.pdf_url)) {
+    const { data, error } = await supabase.storage
+      .from(PRIVATE_BUCKET)
+      .createSignedUrl(privatePathOf(fb.pdf_url), 300)
+    if (error || !data) throw new Error('원본 PDF를 불러오지 못했어요')
+    sourceUrl = data.signedUrl
+  }
+  const res = await fetch(sourceUrl)
   if (!res.ok) throw new Error('원본 PDF를 불러오지 못했어요')
   const buf = await res.arrayBuffer()
 
@@ -213,8 +222,8 @@ function pathFromPublicUrl(url: string | null): string | null {
 }
 
 /** List every file under a folder in the bucket (best effort). */
-async function listFolder(supabase: SupabaseClient, folder: string): Promise<string[]> {
-  const { data, error } = await supabase.storage.from(BUCKET).list(folder, { limit: 1000 })
+async function listFolder(supabase: SupabaseClient, folder: string, bucket: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(bucket).list(folder, { limit: 1000 })
   if (error || !data) return []
   return data.filter((f) => f.name && f.id !== null).map((f) => `${folder}/${f.name}`)
 }
@@ -228,15 +237,20 @@ export async function deleteFlipbook(supabase: SupabaseClient, fb: FlipbookRow):
   const { error } = await supabase.from('flipbooks').delete().eq('id', fb.id)
   if (error) throw error
 
-  const paths: string[] = []
-  for (const folder of [fb.slug, fb.id]) {
-    paths.push(...(await listFolder(supabase, folder)))
+  // Private files (new catalogs) and public files (thumbnails, legacy catalogs).
+  for (const bucket of [PRIVATE_BUCKET, PUBLIC_BUCKET]) {
+    const paths: string[] = []
+    for (const folder of [fb.slug, fb.id]) {
+      paths.push(...(await listFolder(supabase, folder, bucket)))
+    }
+    if (bucket === PRIVATE_BUCKET && isPrivateRef(fb.pdf_url)) paths.push(privatePathOf(fb.pdf_url))
+    if (bucket === PUBLIC_BUCKET) {
+      const legacy = pathFromPublicUrl(fb.pdf_url) // legacy PDFs sit at the bucket root
+      if (legacy) paths.push(legacy)
+    }
+    const unique = paths.filter((p, i) => paths.indexOf(p) === i)
+    if (unique.length > 0) {
+      await supabase.storage.from(bucket).remove(unique).catch(() => undefined)
+    }
   }
-  const original = pathFromPublicUrl(fb.pdf_url)
-  if (original) paths.push(original) // legacy PDFs sit at the bucket root
-  const unique = paths.filter((p, i) => paths.indexOf(p) === i)
-  if (unique.length > 0) {
-    await supabase.storage.from(BUCKET).remove(unique).catch(() => undefined)
-  }
-
 }

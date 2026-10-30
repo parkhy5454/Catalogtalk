@@ -30,7 +30,8 @@ export default function OriginalPage() {
 
   useEffect(() => {
     if (!book || !book.pdf_url || DOCX_RE.test(book.pdf_url)) return
-    const pdfUrl = book.pdf_url
+    // Served through the server route: it re-checks the link and hands out a short-lived URL.
+    const pdfUrl = `/api/original/${slug}`
     let cancelled = false
     if (holder.current) holder.current.innerHTML = ''
     ;(async () => {
@@ -70,7 +71,7 @@ export default function OriginalPage() {
     return () => {
       cancelled = true
     }
-  }, [book])
+  }, [book, slug])
 
   const isDocx = !!book?.pdf_url && DOCX_RE.test(book.pdf_url)
 
@@ -103,7 +104,7 @@ export default function OriginalPage() {
         {book && isDocx && (
           <div style={{ textAlign: 'center', marginTop: 48 }}>
             <p style={{ color: '#ccc', marginBottom: 16 }}>Word 원본은 앱 안에서 볼 수 없어요.</p>
-            <a className="btn btn-primary" href={book.pdf_url!} target="_blank" rel="noopener">
+            <a className="btn btn-primary" href={`/api/original/${book.slug}`} target="_blank" rel="noopener">
               원본 파일 내려받기
             </a>
           </div>

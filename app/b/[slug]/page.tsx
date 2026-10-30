@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { createAnonClient } from '@/lib/supabase/anon'
 import { SITE_NAME, SITE_URL } from '@/lib/site'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
+import { resolvePageUrls } from '@/lib/flipbook/sign'
 import Viewer from './viewer'
 
 export const revalidate = 60
@@ -31,7 +32,10 @@ async function loadPages(flipbookId: string): Promise<PageImage[]> {
     .eq('flipbook_id', flipbookId)
     .order('page_no', { ascending: true })
   if (error || !data) return []
-  return data as PageImage[]
+  const rows = data as PageImage[]
+  // Private pages get short-lived signed URLs; legacy public URLs pass through unchanged.
+  const urls = await resolvePageUrls(rows.map((r) => r.image_url))
+  return rows.map((r, i) => ({ page_no: r.page_no, image_url: urls[i] }))
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
