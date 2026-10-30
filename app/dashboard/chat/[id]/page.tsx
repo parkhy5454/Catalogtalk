@@ -16,6 +16,7 @@ type Msg = {
 }
 
 type Own = { id: string; title: string; slug: string; thumb_url: string | null }
+type Member = { user_id: string; display_name: string | null }
 
 function timeOf(iso: string) {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -34,7 +35,19 @@ export default function ChatThreadPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [catalogs, setCatalogs] = useState<Own[] | null>(null)
+  const [isGroup, setIsGroup] = useState(false)
+  const [members, setMembers] = useState<Member[]>([])
+  const [friends, setFriends] = useState<Member[] | null>(null)
+  const [invitePicked, setInvitePicked] = useState<string[]>([])
+  const [inviteOpen, setInviteOpen] = useState(false)
   const bottom = useRef<HTMLDivElement>(null)
+
+  const loadMembers = useCallback(async () => {
+    const { data } = await supabase.rpc('get_chat_members', { p_thread: id })
+    setMembers((data as Member[]) ?? [])
+  }, [id, supabase])
+
+  const nameOf = (uid: string) => members.find((m) => m.user_id === uid)?.display_name || '회원'
 
   const markRead = useCallback(async (uid: string) => {
     await supabase
@@ -55,8 +68,10 @@ export default function ChatThreadPage() {
         setLoaded(true)
         return
       }
-      setPartner({ id: thread.partner_id, company: thread.alias || thread.partner_company })
+      setPartner({ id: thread.partner_id ?? '', company: thread.alias || thread.partner_company })
       setPinned(thread.pinned === true)
+      setIsGroup(thread.is_group === true)
+      if (thread.is_group === true) await loadMembers()
 
       const { data: rows, error: msgErr } = await supabase
         .from('chat_messages')
@@ -160,8 +175,34 @@ export default function ChatThreadPage() {
     setError(null)
   }
 
+  const openInvite = async () => {
+    if (inviteOpen) {
+      setInviteOpen(false)
+      return
+    }
+    const { data, error: friendErr } = await supabase.rpc('list_my_friends')
+    if (friendErr) return setError('친구 목록을 불러오지 못했어요')
+    const inRoom = new Set(members.map((m) => m.user_id))
+    setFriends(((data as Member[]) ?? []).filter((f) => !inRoom.has(f.user_id)))
+    setInvitePicked([])
+    setInviteOpen(true)
+  }
+
+  const invite = async () => {
+    if (invitePicked.length === 0) return
+    setBusy(true)
+    const { error: inviteErr } = await supabase.rpc('add_group_members', { p_thread: id, p_members: invitePicked })
+    setBusy(false)
+    if (inviteErr) return setError(inviteErr.message || '초대하지 못했어요')
+    setInviteOpen(false)
+    setError(null)
+    await loadMembers()
+  }
+
   const leave = async () => {
-    const ok = window.confirm('이 대화방을 목록에서 나갈까요?\n상대방 쪽 대화는 그대로 남아요. 새 메시지가 오면 다시 나타나요.')
+    const ok = isGroup
+      ? window.confirm('이 단체 대화방에서 나갈까요?\n나가면 대화 내용이 보이지 않아요. 다른 사람에게는 알리지 않아요.')
+      : window.confirm('이 대화방을 목록에서 나갈까요?\n상대방 쪽 대화는 그대로 남아요. 새 메시지가 오면 다시 나타나요.')
     if (!ok) return
     const { error: leaveErr } = await supabase.rpc('leave_chat', { p_thread: id })
     if (leaveErr) return setError('나가지 못했어요')
@@ -202,6 +243,9 @@ export default function ChatThreadPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Link href="/dashboard/chat" className="btn btn-ghost">← 목록</Link>
         <strong className="truncate" style={{ flex: 1 }}>{partner.company || '회원'}</strong>
+        {isGroup && (
+          <button type="button" className="btn btn-ghost" onClick={openInvite} aria-expanded={inviteOpen}>초대</button>
+        )}
         <button type="button" className="btn btn-ghost" onClick={rename}>이름</button>
         <button type="button" className="btn btn-ghost" onClick={leave}>나가기</button>
         <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
@@ -210,6 +254,45 @@ export default function ChatThreadPage() {
       </div>
 
       {error && <div className="notice notice-error" role="alert" style={{ marginBottom: 10 }}>{error}</div>}
+
+      {isGroup && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          참여자 {members.length}명 · {members.map((m) => m.display_name || '회원').join(', ')}
+        </div>
+      )}
+
+      {isGroup && inviteOpen && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>초대할 친구 고르기</div>
+          {friends && friends.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>초대할 친구가 없어요.</div>
+          ) : (
+            <>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+                {(friends ?? []).map((f) => (
+                  <li key={f.user_id}>
+                    <label className="info-box" style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={invitePicked.includes(f.user_id)}
+                        onChange={() =>
+                          setInvitePicked((prev) =>
+                            prev.includes(f.user_id) ? prev.filter((x) => x !== f.user_id) : [...prev, f.user_id]
+                          )
+                        }
+                      />
+                      <span className="truncate">{f.display_name || '회원'}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="btn btn-primary btn-block" style={{ marginTop: 10 }} onClick={invite} disabled={busy || invitePicked.length === 0}>
+                {invitePicked.length > 0 ? `${invitePicked.length}명 초대` : '친구를 골라 주세요'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gap: 8 }}>
         {messages.length === 0 && (
@@ -250,6 +333,7 @@ export default function ChatThreadPage() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
+                  {isGroup && !mine && <span>{nameOf(m.sender_id)} · </span>}
                   <span>{timeOf(m.created_at)}</span>
                   {!mine && (
                     <button type="button" onClick={() => report(m)} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>

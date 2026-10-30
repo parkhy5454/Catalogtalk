@@ -1,9 +1,11 @@
 'use client'
 // Find members by name or company and add them as friends. Adding opens the conversation at once.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
+type Friend = { user_id: string; display_name: string | null }
 
 type Result = {
   user_id: string
@@ -20,6 +22,40 @@ export default function FindFriendsPage() {
   const [results, setResults] = useState<Result[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const [friends, setFriends] = useState<Friend[] | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [groupTitle, setGroupTitle] = useState('')
+
+  useEffect(() => {
+    ;(async () => {
+      const { data, error } = await supabase.rpc('list_my_friends')
+      setFriends(error ? [] : ((data as Friend[]) ?? []))
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const togglePick = (id: string) => {
+    setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const createGroup = async () => {
+    if (picked.length < 1) {
+      setMessage({ kind: 'error', text: '대화할 친구를 한 명 이상 골라 주세요' })
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    const { data: threadId, error } = await supabase.rpc('create_group_chat', {
+      p_title: groupTitle.trim(),
+      p_members: picked,
+    })
+    setBusy(false)
+    if (error || !threadId) {
+      setMessage({ kind: 'error', text: error?.message ?? '단체 대화를 만들지 못했어요' })
+      return
+    }
+    router.push(`/dashboard/chat/${threadId}`)
+  }
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -101,6 +137,57 @@ export default function FindFriendsPage() {
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <h2 className="panel-title" style={{ fontSize: 17 }}>단체 대화 만들기</h2>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          친구를 여러 명 골라 함께 대화할 수 있어요. 나중에 친구를 더 초대할 수 있어요.
+        </p>
+
+        {friends === null ? (
+          <div className="skeleton" style={{ height: 80, marginTop: 12 }} aria-hidden="true" />
+        ) : friends.length === 0 ? (
+          <div className="notice notice-info" style={{ marginTop: 12 }}>
+            아직 친구가 없어요. 위에서 친구를 찾아 추가해 보세요.
+          </div>
+        ) : (
+          <>
+            <input
+              className="input"
+              value={groupTitle}
+              onChange={(e) => setGroupTitle(e.target.value)}
+              placeholder="대화방 이름 (비워 두면 참여자 이름)"
+              maxLength={40}
+              style={{ marginTop: 12, width: '100%' }}
+              disabled={busy}
+            />
+            <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 6 }}>
+              {friends.map((f) => {
+                const on = picked.includes(f.user_id)
+                return (
+                  <li key={f.user_id}>
+                    <label className="info-box" style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} onChange={() => togglePick(f.user_id)} disabled={busy} />
+                      <span className="truncate">{f.display_name || '회원'}</span>
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              style={{ marginTop: 12 }}
+              onClick={createGroup}
+              disabled={busy || picked.length === 0}
+            >
+              {picked.length > 0 ? `${picked.length}명과 단체 대화 시작` : '친구를 골라 주세요'}
+            </button>
+          </>
         )}
       </section>
     </main>

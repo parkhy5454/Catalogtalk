@@ -9,13 +9,15 @@ type Thread = {
   partner_id: string
   partner_company: string | null
   alias: string | null
-  last_message_at: string
+  last_message_at: string | null
   last_body: string | null
   unread: number
   pinned: boolean
+  is_group: boolean
 }
 
-function when(iso: string) {
+function when(iso: string | null) {
+  if (!iso) return ''
   return new Date(iso).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
@@ -55,7 +57,7 @@ export default function ChatListPage() {
       <section className="panel">
         <div className="panel-head">
           <h1 className="panel-title">대화</h1>
-          <Link href="/dashboard/chat/new" className="btn btn-primary">친구 찾기</Link>
+          <Link href="/dashboard/chat/new" className="btn btn-primary">친구·단체</Link>
         </div>
 
         {!loaded ? (
@@ -74,7 +76,7 @@ export default function ChatListPage() {
               <li key={t.thread_id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
                 <Link href={`/dashboard/chat/${t.thread_id}`} className="info-box" style={{ flex: 1, minWidth: 0, display: 'block', textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <strong className="truncate">{t.pinned ? '📌 ' : ''}{t.alias || t.partner_company || '회원'}</strong>
+                    <strong className="truncate">{t.pinned ? '📌 ' : ''}{t.is_group ? '👥 ' : ''}{t.alias || t.partner_company || (t.is_group ? '단체 대화' : '회원')}</strong>
                     <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{when(t.last_message_at)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
