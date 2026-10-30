@@ -14,7 +14,7 @@ const LEFT_TABS = [
   { href: '/dashboard/folders', label: 'My Book', icon: '📚', match: ['/dashboard/folders'] },
 ] as const
 const RIGHT_TABS = [
-  { href: '/dashboard/chat', label: '대화', icon: '💬', match: ['/dashboard/chat', '/dashboard/business'] },
+  { href: '/dashboard/chat', label: '대화', icon: '💬', match: ['/dashboard/chat'] },
   { href: '/dashboard/settings', label: '설정', icon: '⚙️', match: ['/dashboard/settings', '/dashboard/profile', '/dashboard/admin', '/dashboard/referral'] },
 ] as const
 

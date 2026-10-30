@@ -733,3 +733,52 @@ begin
 exception when duplicate_object then null;
 end $$;
 notify pgrst, 'reload schema';
+
+-- 16. Chat without business verification (v16) ----------------------------
+-- Every member can chat. Members find each other with their friend code (customers.referral_code).
+-- The business number is no longer used for chat; its column and index stay harmless.
+create or replace function is_business_user(u uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists (select 1 from customers where user_id = u) $$;
+
+drop function if exists find_business_member(text);
+create or replace function find_chat_partner(p_code text)
+returns table (user_id uuid, company_name text)
+language sql stable security definer set search_path = public
+as $$
+  select c.user_id, coalesce(c.company_name, c.name)
+  from customers c
+  where c.referral_code = upper(trim(p_code))
+    and c.user_id <> auth.uid()
+    and is_business_user(auth.uid())
+    and not is_blocked_between(c.user_id, auth.uid())
+  limit 1
+$$;
+grant execute on function find_chat_partner(text) to authenticated;
+
+create or replace function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text,
+  last_message_at timestamptz, last_body text, unread int
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.user_a = auth.uid() then t.user_b else t.user_a end,
+    (select coalesce(c.company_name, c.name) from customers c
+      where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end),
+    t.last_message_at,
+    (select case when m.body <> '' then m.body else '[카탈로그] ' || coalesce(m.catalog_title, '') end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz))
+  from chat_threads t
+  where (t.user_a = auth.uid() or t.user_b = auth.uid())
+    and not is_blocked_between(t.user_a, t.user_b)
+  order by t.last_message_at desc
+$$;
+notify pgrst, 'reload schema';
