@@ -152,7 +152,9 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [quoteOpen, setQuoteOpen] = useState(false)
   // Products and order requests: the list is loaded once per visit.
   const [products, setProducts] = useState<ShopProduct[]>([])
+  const pageProducts = products.filter((p) => p.page_no === pageIdx + 1)
   const [shopOpen, setShopOpen] = useState(false)
+  const [shopFocus, setShopFocus] = useState<string | null>(null)
   useEffect(() => {
     createClient()
       .rpc('get_products', { p_slug: flipbook.slug })
@@ -517,7 +519,20 @@ export default function Viewer({ flipbook, pages }: Props) {
         </div>
       </header>
       {shopOpen && (
-        <ShopSheet flipbookId={flipbook.id} session={visitId()} products={products} orderOn={flipbook.order_form === true} onClose={() => setShopOpen(false)} />
+        <ShopSheet flipbookId={flipbook.id} session={visitId()} products={products} orderOn={flipbook.order_form === true} initialId={shopFocus} onClose={() => { setShopOpen(false); setShopFocus(null) }} />
+      )}
+      {!shopOpen && pageProducts.length > 0 && (
+        <div role="region" aria-label="이 쪽의 상품" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(12px + env(safe-area-inset-bottom))', zIndex: 30, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', maxWidth: '92vw', padding: '6px', pointerEvents: 'auto' }}>
+            {pageProducts.map((p) => (
+              <button key={p.id} type="button" onClick={() => { setShopFocus(p.id); setShopOpen(true) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '6px 10px 6px 6px', borderRadius: 999, border: 0, background: 'rgba(20,20,20,0.85)', color: '#fff', fontSize: 13 }}>
+                {p.image_url ? <img src={p.image_url} alt="" width={28} height={28} loading="lazy" style={{ borderRadius: '50%', objectFit: 'cover' }} /> : null}
+                <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {transOpen && (
         <TranslationSheet slug={flipbook.slug} langs={transLangs} onClose={() => setTransOpen(false)} />
