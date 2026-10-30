@@ -1995,3 +1995,51 @@ $$;
 grant execute on function set_auto_delete(uuid, int) to authenticated;
 grant execute on function get_chat_thread(uuid) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 30. Traffic source on views (v30) ------------------------------------
+
+alter table flipbook_views add column if not exists src text;
+
+-- Replace the 5-argument record_view with a 6-argument one (src is optional).
+drop function if exists record_view(uuid, text, int, int, text);
+
+create or replace function record_view(
+  p_flipbook uuid, p_session text, p_page int, p_dwell int, p_ua text, p_src text default null
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_pages int;
+  v_is_new boolean;
+begin
+  if p_session is null or char_length(p_session) not between 8 and 64 then return; end if;
+  select page_count into v_pages from flipbooks where id = p_flipbook;
+  if v_pages is null or v_pages < 1 then return; end if;
+  if p_page is null or p_page < 1 or p_page > v_pages then return; end if;
+  -- one session may write at most 300 page rows in 10 minutes
+  if (select count(*) from flipbook_views
+       where session_id = p_session and viewed_at > now() - interval '10 minutes') >= 300 then
+    return;
+  end if;
+  -- coarse daily ceiling per flipbook (stops runaway spam)
+  if (select count(*) from flipbook_views
+       where flipbook_id = p_flipbook and viewed_at > now() - interval '1 day') >= 50000 then
+    return;
+  end if;
+  v_is_new := not exists (
+    select 1 from flipbook_views where flipbook_id = p_flipbook and session_id = p_session
+  );
+  insert into flipbook_views (flipbook_id, session_id, page_no, dwell_ms, user_agent, src)
+  values (p_flipbook, p_session, p_page,
+          greatest(0, least(coalesce(p_dwell, 0), 3600000)), left(p_ua, 255),
+          case when p_src ~ '^[a-z]{1,16}$' then p_src else null end);
+  -- a view is counted once per visit, when its first page row arrives
+  if v_is_new then
+    update flipbooks set views = views + 1 where id = p_flipbook;
+  end if;
+end $$;
+
+revoke all on function record_view(uuid, text, int, int, text, text) from public;
+grant execute on function record_view(uuid, text, int, int, text, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';

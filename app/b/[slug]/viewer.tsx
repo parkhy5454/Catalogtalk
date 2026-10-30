@@ -18,6 +18,17 @@ function visitId(): string {
   return cachedVisitId
 }
 
+// Where the visitor came from: the share link carries ?src=kakao, sms, mail, link, native.
+// Only short lowercase tags are kept; anything else counts as a direct visit.
+function trafficSource(): string | null {
+  try {
+    const s = new URLSearchParams(window.location.search).get('src')
+    return s && /^[a-z]{1,16}$/.test(s) ? s : null
+  } catch {
+    return null
+  }
+}
+
 const SOUND_KEY = 'catalogtalk-page-sound'
 const NOTICE_KEY = 'catalogtalk-view-notice-ok'
 const BOOK_WIDTH = 1000 // logical page width; the library scales it to the container
@@ -305,6 +316,7 @@ export default function Viewer({ flipbook, pages }: Props) {
           p_page: pageNo,
           p_dwell: Math.max(0, Math.min(dwellMs, 3_600_000)),
           p_ua: navigator.userAgent.slice(0, 255),
+          p_src: trafficSource(),
         })
         .then(() => undefined)
     },

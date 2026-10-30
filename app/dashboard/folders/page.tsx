@@ -361,13 +361,13 @@ export default function MyBookPage() {
   }
 
   const handleCopy = async (slug: string) => {
-    const ok = await copyText(`${origin}/b/${slug}`)
+    const ok = await copyText(`${origin}/b/${slug}?src=link`)
     setMessage(ok ? { kind: 'success', text: '✅ 링크를 복사했어요' } : { kind: 'error', text: '복사하지 못했어요. 링크를 길게 눌러 직접 복사해 주세요.' })
   }
 
   const handleNativeShare = async (fb: FlipbookRow) => {
     try {
-      await navigator.share({ title: fb.title, text: shareText(fb.title), url: `${origin}/b/${fb.slug}` })
+      await navigator.share({ title: fb.title, text: shareText(fb.title), url: `${origin}/b/${fb.slug}?src=native` })
       setShareOpenId(null)
     } catch (err) {
       // Cancelling the share sheet is not an error worth showing.
@@ -681,7 +681,7 @@ export default function MyBookPage() {
                     await shareCatalogToKakao({
                       title: shareTarget.title,
                       imageUrl: shareTarget.thumb_url as string,
-                      link: `${origin}/b/${shareTarget.slug}`,
+                      link: `${origin}/b/${shareTarget.slug}?src=kakao`,
                     })
                     setShareOpenId(null)
                   } catch (err) {
@@ -697,12 +697,12 @@ export default function MyBookPage() {
                 <span className="sheet-icon" aria-hidden="true">📤</span>공유하기
               </button>
             )}
-            <a className="sheet-action" href={`sms:?body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}`)}`}>
+            <a className="sheet-action" href={`sms:?body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}?src=sms`)}`}>
               <span className="sheet-icon" aria-hidden="true">💬</span>문자로 보내기
             </a>
             <a
               className="sheet-action"
-              href={`mailto:?subject=${encodeURIComponent(`[카탈로그톡] ${shareTarget.title}`)}&body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}`)}`}
+              href={`mailto:?subject=${encodeURIComponent(`[카탈로그톡] ${shareTarget.title}`)}&body=${encodeURIComponent(`${shareText(shareTarget.title)}\n${origin}/b/${shareTarget.slug}?src=mail`)}`}
             >
               <span className="sheet-icon" aria-hidden="true">✉️</span>이메일로 보내기
             </a>
