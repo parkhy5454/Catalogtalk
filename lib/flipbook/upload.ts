@@ -76,7 +76,9 @@ async function uploadThumb(supabase: SupabaseClient, slug: string, blob: Blob) {
 }
 
 /** Upload rendered page images to the private bucket. Returns stored references in page order. */
-async function uploadPages(supabase: SupabaseClient, slug: string, pages: Pages, onProgress?: (done: number, total: number) => void) {
+// upsert=true is only for re-converting an existing catalog. Upsert also needs a read permission,
+// which new catalogs do not have yet (their database row is created after the pages).
+async function uploadPages(supabase: SupabaseClient, slug: string, pages: Pages, onProgress?: (done: number, total: number) => void, upsert = true) {
   const urls: Record<number, string> = {}
   let done = 0
   await mapLimit(pages, UPLOAD_CONCURRENCY, async (p) => {
@@ -84,7 +86,7 @@ async function uploadPages(supabase: SupabaseClient, slug: string, pages: Pages,
     const { error } = await supabase.storage.from(PRIVATE_BUCKET).upload(path, p.blob, {
       contentType: p.ext === 'webp' ? 'image/webp' : 'image/jpeg',
       cacheControl: ASSET_CACHE,
-      upsert: true,
+      upsert,
     })
     if (error) throw new Error(`페이지 ${p.pageNo} 업로드 실패: ${error.message}`)
     urls[p.pageNo] = PRIVATE_PREFIX + path
@@ -135,8 +137,7 @@ export async function createFlipbook(
 
   onStatus('페이지 이미지 업로드 중...', 0.45)
   const uploaded = await uploadPages(supabase, slug, pages, (d, t) =>
-    onStatus(`이미지 업로드 중 ${d} / ${t}`, 0.45 + (d / t) * 0.45)
-  )
+    onStatus(`이미지 업로드 중 ${d} / ${t}`, 0.45 + (d / t) * 0.45), false)
 
   onStatus('저장 중...', 0.95)
   const pdfUrl = PRIVATE_PREFIX + originalPath
