@@ -78,6 +78,8 @@ export default function ChatThreadPage() {
   const [muted, setMuted] = useState<Member[]>([])
   const [mutePanelOpen, setMutePanelOpen] = useState(false)
   const mutedRef = useRef<Set<string>>(new Set())
+  const [autoDelete, setAutoDelete] = useState<number | null>(null)
+  const [timerOpen, setTimerOpen] = useState(false)
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -152,6 +154,7 @@ export default function ChatThreadPage() {
       setPartner({ id: thread.partner_id ?? '', company: thread.alias || thread.partner_company })
       setPinned(thread.pinned === true)
       setIsGroup(thread.is_group === true)
+      setAutoDelete(thread.auto_delete_hours ?? null)
       if (thread.is_group === true) {
         await loadMembers()
         await loadMuted()
@@ -181,6 +184,14 @@ export default function ChatThreadPage() {
             if (mutedRef.current.has(row.sender_id)) return
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
             if (row.sender_id !== user.id) void markRead(user.id)
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `thread_id=eq.${id}` },
+          (payload) => {
+            const row = payload.new as Msg
+            setMessages((prev) => prev.map((m) => (m.id === row.id ? { ...m, ...row } : m)))
           }
         )
         .subscribe()
@@ -333,6 +344,35 @@ export default function ChatThreadPage() {
     await loadMembers()
   }
 
+  const chooseAutoDelete = async (hours: number | null) => {
+    const { error: timerErr } = await supabase.rpc('set_auto_delete', { p_thread: id, p_hours: hours })
+    if (timerErr) return setError('자동 삭제 설정을 바꾸지 못했어요')
+    setAutoDelete(hours)
+    setTimerOpen(false)
+    setError(null)
+  }
+
+  const deleteForEveryone = async (m: Msg) => {
+    const ok = window.confirm('이 메시지를 모두에게서 지울까요?\n상대와 단체방 모두에게서 사라져요.')
+    if (!ok) return
+    const res = await fetch('/api/chat/delete-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: m.id }),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      return setError(body.error ?? '지우지 못했어요')
+    }
+    setMessages((prev) =>
+      prev.map((x) =>
+        x.id === m.id
+          ? { ...x, body: '삭제된 메시지', file_path: null, file_name: null, file_type: null, file_size: null, catalog_slug: null, catalog_title: null, catalog_thumb: null }
+          : x
+      )
+    )
+  }
+
   const blockPartner = async () => {
     if (!partner?.id) return
     const ok = window.confirm('이 회원을 차단할까요?\n서로 메시지를 보낼 수 없고, 목록에서도 사라져요. 차단 해제는 설정 > 차단한 회원에서 할 수 있어요.')
@@ -424,6 +464,9 @@ export default function ChatThreadPage() {
               {isGroup && (
                 <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); void openInvite() }}>친구 초대</button>
               )}
+              <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); setTimerOpen((v) => !v) }}>
+                자동 삭제: {autoDelete === null ? '끔' : autoDelete === 1 ? '1시간' : autoDelete === 24 ? '1일' : '1주'}
+              </button>
               {isGroup && (
                 <button type="button" role="menuitem" style={MENU_ITEM} onClick={() => { setMenuOpen(false); setMutePanelOpen((v) => !v) }}>숨긴 멤버 관리 ({muted.length})</button>
               )}
@@ -468,6 +511,30 @@ export default function ChatThreadPage() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {timerOpen && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>자동 삭제</span>
+            <button type="button" onClick={() => setTimerOpen(false)} aria-label="닫기" style={{ background: 'none', border: 0, fontSize: 18, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+            정해진 시간이 지난 메시지는 모두에게서 사라지고, 하루에 한 번 완전히 지워져요.
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {([[null, '끔'], [1, '1시간'], [24, '1일'], [168, '1주']] as const).map(([h, label]) => (
+              <button
+                key={label}
+                type="button"
+                className={autoDelete === h ? 'btn btn-primary' : 'btn btn-ghost'}
+                onClick={() => chooseAutoDelete(h)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -571,8 +638,10 @@ export default function ChatThreadPage() {
                         borderRadius: mine
                           ? (lastInGroup ? '18px 18px 4px 18px' : 18)
                           : (lastInGroup ? '18px 18px 18px 4px' : 18),
-                        background: mine ? 'var(--yellow, #fee500)' : '#fff',
-                        color: 'var(--ink, #111)',
+                        background: m.body === '삭제된 메시지' ? 'transparent' : mine ? 'var(--yellow, #fee500)' : '#fff',
+                        fontStyle: m.body === '삭제된 메시지' ? 'italic' : 'normal',
+                        color: m.body === '삭제된 메시지' ? '#8a8a8a' : 'var(--ink, #111)',
+                        border: m.body === '삭제된 메시지' ? '1px dashed #d0d3d8' : 'none',
                         boxShadow: mine ? 'none' : '0 1px 1px rgba(0,0,0,0.05)',
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
@@ -600,6 +669,11 @@ export default function ChatThreadPage() {
                             {savingId === m.id ? '저장 중...' : '내 목록에 저장'}
                           </button>
                         )
+                      )}
+                      {mine && m.body !== '삭제된 메시지' && (
+                        <button type="button" onClick={() => deleteForEveryone(m)} style={{ fontSize: 11, color: '#8a8a8a', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
+                          삭제
+                        </button>
                       )}
                       {!mine && isGroup && (
                         <button type="button" onClick={() => muteSender(m.sender_id)} style={{ fontSize: 11, color: '#8a8a8a', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>

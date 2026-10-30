@@ -1921,3 +1921,76 @@ grant execute on function mute_member(uuid, uuid) to authenticated;
 grant execute on function unmute_member(uuid) to authenticated;
 grant execute on function list_muted_members() to authenticated;
 notify pgrst, 'reload schema';
+
+-- 29. Auto-delete timer and expiry (v29) ----------------------------------------
+-- Each room can set a timer (1 hour, 1 day, 1 week). Messages older than the timer disappear at once
+-- from every member's view, and a daily job removes them and their files for good.
+alter table chat_threads add column if not exists auto_delete_hours int;
+alter table chat_threads drop constraint if exists chat_threads_auto_delete_check;
+alter table chat_threads add constraint chat_threads_auto_delete_check check (auto_delete_hours in (1, 24, 168));
+
+drop policy if exists chat_messages_member_select on chat_messages;
+create policy chat_messages_member_select on chat_messages for select to authenticated
+  using (
+    is_thread_member(thread_id, auth.uid())
+    and not exists (
+      select 1 from chat_mutes x
+      where x.user_id = auth.uid() and x.muted_id = chat_messages.sender_id
+    )
+    and not exists (
+      select 1 from chat_threads t
+      where t.id = chat_messages.thread_id
+        and t.auto_delete_hours is not null
+        and chat_messages.created_at < now() - make_interval(hours => t.auto_delete_hours)
+    )
+  );
+
+create or replace function set_auto_delete(p_thread uuid, p_hours int)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null or not is_thread_member(p_thread, auth.uid()) then
+    raise exception '대화를 찾을 수 없어요';
+  end if;
+  if p_hours is not null and p_hours not in (1, 24, 168) then
+    raise exception '자동 삭제 시간이 올바르지 않아요';
+  end if;
+  update chat_threads set auto_delete_hours = p_hours where id = p_thread;
+end;
+$$;
+
+drop function if exists get_chat_thread(uuid);
+create function get_chat_thread(p_id uuid)
+returns table (partner_id uuid, partner_company text, alias text, pinned boolean, is_group boolean, auto_delete_hours int)
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null or not is_thread_member(p_id, me) then return; end if;
+  update chat_thread_prefs set hidden_at = null where user_id = me and thread_id = p_id;
+  return query
+    select
+      case when t.is_group then null else case when t.user_a = me then t.user_b else t.user_a end end,
+      case when t.is_group then coalesce(t.title, (
+        select string_agg(x.n, ', ') from (
+          select coalesce(c.company_name, c.name) as n from chat_members m
+            join customers c on c.user_id = m.user_id
+           where m.thread_id = t.id and m.left_at is null and m.user_id <> me
+           limit 3) x))
+      else (select coalesce(c.company_name, c.name) from customers c
+              where c.user_id = case when t.user_a = me then t.user_b else t.user_a end)
+      end,
+      (select p.alias from chat_thread_prefs p where p.user_id = me and p.thread_id = t.id),
+      exists (select 1 from chat_pins p where p.user_id = me and p.thread_id = t.id),
+      t.is_group,
+      t.auto_delete_hours
+    from chat_threads t
+    where t.id = p_id;
+end;
+$$;
+
+grant execute on function set_auto_delete(uuid, int) to authenticated;
+grant execute on function get_chat_thread(uuid) to authenticated;
+notify pgrst, 'reload schema';
