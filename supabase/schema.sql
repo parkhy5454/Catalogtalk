@@ -531,3 +531,205 @@ begin
 end;
 $$;
 notify pgrst, 'reload schema';
+
+-- 15. Business chat (v15) -----------------------------------------------
+-- Business members only (is_business, set after a valid business number is saved).
+-- One 1:1 thread per pair. Messages can carry a catalog card (a snapshot of title, slug, thumb).
+alter table customers add column if not exists is_business boolean not null default false;
+alter table customers add column if not exists business_number text;
+create unique index if not exists customers_business_number_uniq
+  on customers (business_number) where business_number is not null;
+
+create table if not exists chat_threads (
+  id uuid primary key default gen_random_uuid(),
+  user_a uuid not null references auth.users(id) on delete cascade,
+  user_b uuid not null references auth.users(id) on delete cascade,
+  last_message_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  check (user_a < user_b),
+  unique (user_a, user_b)
+);
+
+create table if not exists chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  thread_id uuid not null references chat_threads(id) on delete cascade,
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  body text not null default '' check (char_length(body) <= 2000),
+  catalog_title text,
+  catalog_slug text,
+  catalog_thumb text,
+  created_at timestamptz not null default now(),
+  check (char_length(body) > 0 or catalog_slug is not null)
+);
+create index if not exists chat_messages_thread_idx on chat_messages (thread_id, created_at);
+
+create table if not exists chat_reads (
+  thread_id uuid not null references chat_threads(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (thread_id, user_id)
+);
+
+create table if not exists chat_blocks (
+  blocker_id uuid not null references auth.users(id) on delete cascade,
+  blocked_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (blocker_id, blocked_id)
+);
+
+create table if not exists chat_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null references auth.users(id) on delete cascade,
+  message_id uuid references chat_messages(id) on delete cascade,
+  reason text not null check (char_length(reason) <= 500),
+  created_at timestamptz not null default now()
+);
+
+alter table chat_threads enable row level security;
+alter table chat_messages enable row level security;
+alter table chat_reads enable row level security;
+alter table chat_blocks enable row level security;
+alter table chat_reports enable row level security;
+
+create or replace function is_business_user(u uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select coalesce((select is_business from customers where user_id = u), false) $$;
+
+create or replace function is_blocked_between(a uuid, b uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from chat_blocks
+    where (blocker_id = a and blocked_id = b) or (blocker_id = b and blocked_id = a)
+  )
+$$;
+
+-- Threads: readable by the two members; created only through open_chat().
+drop policy if exists chat_threads_member_select on chat_threads;
+create policy chat_threads_member_select on chat_threads for select to authenticated
+  using (user_a = auth.uid() or user_b = auth.uid());
+
+-- Messages: members of an unblocked thread, both business members, sender must be the caller.
+drop policy if exists chat_messages_member_select on chat_messages;
+create policy chat_messages_member_select on chat_messages for select to authenticated
+  using (exists (
+    select 1 from chat_threads t
+    where t.id = thread_id and (t.user_a = auth.uid() or t.user_b = auth.uid())
+      and not is_blocked_between(t.user_a, t.user_b)
+  ));
+
+drop policy if exists chat_messages_member_insert on chat_messages;
+create policy chat_messages_member_insert on chat_messages for insert to authenticated
+  with check (
+    sender_id = auth.uid()
+    and is_business_user(auth.uid())
+    and exists (
+      select 1 from chat_threads t
+      where t.id = thread_id and (t.user_a = auth.uid() or t.user_b = auth.uid())
+        and not is_blocked_between(t.user_a, t.user_b)
+    )
+    and (catalog_slug is null or exists (
+      select 1 from flipbooks f where f.slug = catalog_slug and f.user_id = auth.uid()
+    ))
+  );
+
+drop policy if exists chat_reads_own on chat_reads;
+create policy chat_reads_own on chat_reads for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists chat_blocks_own on chat_blocks;
+create policy chat_blocks_own on chat_blocks for all to authenticated
+  using (blocker_id = auth.uid()) with check (blocker_id = auth.uid());
+
+drop policy if exists chat_reports_insert_own on chat_reports;
+create policy chat_reports_insert_own on chat_reports for insert to authenticated
+  with check (reporter_id = auth.uid());
+
+create or replace function open_chat(p_other uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  tid uuid;
+begin
+  if me is null then raise exception '로그인이 필요해요'; end if;
+  if p_other = me then raise exception '자기 자신과는 대화할 수 없어요'; end if;
+  if not is_business_user(me) or not is_business_user(p_other) then
+    raise exception '사업자 회원끼리만 대화할 수 있어요';
+  end if;
+  if is_blocked_between(me, p_other) then raise exception '대화할 수 없는 상대예요'; end if;
+  insert into chat_threads (user_a, user_b)
+  values (least(me, p_other), greatest(me, p_other))
+  on conflict (user_a, user_b) do update set user_a = excluded.user_a
+  returning id into tid;
+  return tid;
+end;
+$$;
+
+create or replace function find_business_member(p_number text)
+returns table (user_id uuid, company_name text)
+language sql stable security definer set search_path = public
+as $$
+  select c.user_id, c.company_name
+  from customers c
+  where c.business_number = p_number
+    and c.is_business
+    and c.user_id <> auth.uid()
+    and is_business_user(auth.uid())
+    and not is_blocked_between(c.user_id, auth.uid())
+  limit 1
+$$;
+
+create or replace function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text,
+  last_message_at timestamptz, last_body text, unread int
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.user_a = auth.uid() then t.user_b else t.user_a end,
+    (select c.company_name from customers c
+      where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end),
+    t.last_message_at,
+    (select case when m.body <> '' then m.body else '[카탈로그] ' || coalesce(m.catalog_title, '') end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz))
+  from chat_threads t
+  where (t.user_a = auth.uid() or t.user_b = auth.uid())
+    and not is_blocked_between(t.user_a, t.user_b)
+  order by t.last_message_at desc
+$$;
+
+create or replace function touch_chat_thread()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update chat_threads set last_message_at = new.created_at where id = new.thread_id;
+  return new;
+end;
+$$;
+drop trigger if exists chat_message_touch on chat_messages;
+create trigger chat_message_touch after insert on chat_messages
+  for each row execute function touch_chat_thread();
+
+grant execute on function open_chat(uuid) to authenticated;
+grant execute on function find_business_member(text) to authenticated;
+grant execute on function list_chat_threads() to authenticated;
+grant execute on function is_business_user(uuid) to authenticated;
+grant execute on function is_blocked_between(uuid, uuid) to authenticated;
+
+-- Live updates for the open conversation.
+do $$
+begin
+  alter publication supabase_realtime add table chat_messages;
+exception when duplicate_object then null;
+end $$;
+notify pgrst, 'reload schema';
