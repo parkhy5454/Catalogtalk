@@ -416,7 +416,17 @@ export default function ChatThreadPage() {
 
       {catalogs && (
         <div className="panel" style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>보낼 카탈로그 선택</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>보낼 카탈로그 선택</span>
+            <button
+              type="button"
+              onClick={() => setCatalogs(null)}
+              aria-label="카탈로그 선택 닫기"
+              style={{ background: 'none', border: 0, fontSize: 18, lineHeight: 1, padding: 4, cursor: 'pointer', color: 'var(--muted)' }}
+            >
+              ✕
+            </button>
+          </div>
           {catalogs.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>보낼 수 있는 카탈로그가 없어요.</div>
           ) : (
