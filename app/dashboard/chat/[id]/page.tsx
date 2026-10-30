@@ -461,6 +461,13 @@ export default function ChatThreadPage() {
           className="input"
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // On a computer, Enter sends and Shift+Enter makes a new line. Phones keep Enter as a new line.
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+            if (!window.matchMedia('(pointer: fine)').matches) return
+            e.preventDefault()
+            if (text.trim() && !busy) e.currentTarget.form?.requestSubmit()
+          }}
           maxLength={2000}
           rows={1}
           placeholder="메시지 입력"
