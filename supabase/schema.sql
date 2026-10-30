@@ -2355,3 +2355,77 @@ grant execute on function create_team(text), create_team_invite(), join_team(tex
   get_my_team(), list_team_members() to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 33. Team members manage team catalogs (v33) ----------------------------
+
+-- Owner of the catalog or a member of its team.
+create or replace function can_manage_flipbook(p_flipbook uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from flipbooks f
+    where f.id = p_flipbook
+      and (f.user_id = auth.uid() or f.team_id in (select my_team_ids()))
+  );
+$$;
+
+-- Storage files live under a folder named by the catalog slug or id (see lib/flipbook/upload.ts).
+create or replace function can_manage_storage_path(p_name text)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from flipbooks f
+    where (f.slug = split_part(p_name, '/', 1) or f.id::text = split_part(p_name, '/', 1))
+      and (f.user_id = auth.uid() or f.team_id in (select my_team_ids()))
+  );
+$$;
+
+revoke all on function can_manage_flipbook(uuid), can_manage_storage_path(text) from public, anon;
+grant execute on function can_manage_flipbook(uuid), can_manage_storage_path(text) to authenticated;
+
+-- flipbooks: update and delete by owner or team
+drop policy if exists flipbooks_owner_update on flipbooks;
+create policy flipbooks_owner_update on flipbooks for update to authenticated
+  using (can_manage_flipbook(id)) with check (can_manage_flipbook(id));
+drop policy if exists flipbooks_owner_delete on flipbooks;
+create policy flipbooks_owner_delete on flipbooks for delete to authenticated
+  using (can_manage_flipbook(id));
+
+-- flipbook_pages: write by owner or team
+drop policy if exists pages_owner_write on flipbook_pages;
+create policy pages_owner_write on flipbook_pages for all to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+-- view logs and leads: read by owner or team
+drop policy if exists views_owner_select on flipbook_views;
+create policy views_owner_select on flipbook_views for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+
+drop policy if exists flipbook_leads_owner_select on flipbook_leads;
+create policy flipbook_leads_owner_select on flipbook_leads for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+drop policy if exists flipbook_leads_owner_delete on flipbook_leads;
+create policy flipbook_leads_owner_delete on flipbook_leads for delete to authenticated
+  using (can_manage_flipbook(flipbook_id));
+
+-- storage: list, replace and delete files of the team's catalogs (both buckets)
+drop policy if exists flipbook_private_select_team on storage.objects;
+create policy flipbook_private_select_team on storage.objects for select to authenticated
+  using (bucket_id = 'flipbook-private' and can_manage_storage_path(name));
+drop policy if exists flipbook_private_update_team on storage.objects;
+create policy flipbook_private_update_team on storage.objects for update to authenticated
+  using (bucket_id = 'flipbook-private' and can_manage_storage_path(name));
+drop policy if exists flipbook_private_delete_team on storage.objects;
+create policy flipbook_private_delete_team on storage.objects for delete to authenticated
+  using (bucket_id = 'flipbook-private' and can_manage_storage_path(name));
+
+drop policy if exists flipbook_files_update_team on storage.objects;
+create policy flipbook_files_update_team on storage.objects for update to authenticated
+  using (bucket_id = 'flipbook-files' and can_manage_storage_path(name));
+drop policy if exists flipbook_files_delete_team on storage.objects;
+create policy flipbook_files_delete_team on storage.objects for delete to authenticated
+  using (bucket_id = 'flipbook-files' and can_manage_storage_path(name));
+
+notify pgrst, 'reload schema';

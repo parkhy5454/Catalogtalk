@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { deleteFlipbook, type FlipbookRow } from '@/lib/flipbook/upload'
 
 type Team = { id: string; name: string; member_count: number; catalog_count: number }
 type Member = { user_id: string; display_name: string | null; company_name: string | null; is_me: boolean }
-type Catalog = { id: string; title: string; slug: string; views: number }
+type Catalog = FlipbookRow
 
 const TEAM_CATALOG_LIMIT = 200 // keep in sync with enforce_flipbook_limit (v32)
 
@@ -28,7 +29,11 @@ export default function TeamPage() {
     if (t) {
       const [mem, cat] = await Promise.all([
         supabase.rpc('list_team_members'),
-        supabase.from('flipbooks').select('id, title, slug, views').eq('team_id', t.id).order('created_at', { ascending: false }),
+        supabase
+          .from('flipbooks')
+          .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, is_public, folder_id')
+          .eq('team_id', t.id)
+          .order('created_at', { ascending: false }),
       ])
       setMembers((mem.data as Member[]) ?? [])
       setCatalogs((cat.data as Catalog[]) ?? [])
@@ -72,6 +77,27 @@ export default function TeamPage() {
     } catch {
       setMessage({ kind: 'error', text: '복사하지 못했어요. 링크를 길게 눌러 직접 복사해 주세요.' })
     }
+  }
+
+  const togglePublic = async (c: Catalog) => {
+    setBusy(true)
+    const { error } = await supabase.from('flipbooks').update({ is_public: !c.is_public }).eq('id', c.id)
+    setBusy(false)
+    if (error) return setMessage({ kind: 'error', text: '공개 설정을 바꾸지 못했어요' })
+    await load()
+  }
+
+  const removeCatalog = async (c: Catalog) => {
+    if (!window.confirm(`"${c.title}"을(를) 삭제할까요?\n삭제하면 링크가 더 이상 열리지 않아요.`)) return
+    setBusy(true)
+    try {
+      await deleteFlipbook(supabase, c)
+    } catch {
+      setBusy(false)
+      return setMessage({ kind: 'error', text: '삭제하지 못했어요. 잠시 후 다시 해 주세요.' })
+    }
+    setBusy(false)
+    await load()
   }
 
   const leave = async () => {
@@ -157,9 +183,20 @@ export default function TeamPage() {
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0', display: 'grid', gap: 6 }}>
                 {catalogs.map((c) => (
-                  <li key={c.id} className="info-box" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 14 }}>
-                    <span className="truncate">{c.title}</span>
-                    <span style={{ color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>조회 {c.views.toLocaleString()}</span>
+                  <li key={c.id} className="info-box" style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span className="truncate">{c.title}</span>
+                      <span style={{ color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                        조회 {c.views.toLocaleString()} · {c.is_public ? '공개' : '비공개'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <Link href={`/dashboard/stats/${c.id}`} className="btn btn-ghost">통계</Link>
+                      <button type="button" className="btn btn-ghost" onClick={() => togglePublic(c)} disabled={busy}>
+                        {c.is_public ? '링크 끄기' : '링크 켜기'}
+                      </button>
+                      <button type="button" className="btn btn-danger" onClick={() => removeCatalog(c)} disabled={busy}>삭제</button>
+                    </div>
                   </li>
                 ))}
               </ul>
