@@ -28,6 +28,7 @@ export default function ChatListPage() {
   const [error, setError] = useState<string | null>(null)
   const [discoverable, setDiscoverable] = useState(true)
   const [readReceipts, setReadReceipts] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
 
   const togglePin = async (t: Thread) => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -80,10 +81,20 @@ export default function ChatListPage() {
       <section className="panel">
         <div className="panel-head">
           <h1 className="panel-title">대화</h1>
-          <Link href="/dashboard/chat/new" className="btn btn-primary">친구·단체</Link>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setShowSettings((v) => !v)}
+              aria-expanded={showSettings}
+            >
+              ⚙️ 설정
+            </button>
+            <Link href="/dashboard/chat/new" className="btn btn-primary">친구·단체</Link>
+          </div>
         </div>
 
-        {loaded && (
+        {loaded && showSettings && (
           <div className="info-box" style={{ marginTop: 12, display: 'grid', gap: 8 }}>
             <button
               type="button"
