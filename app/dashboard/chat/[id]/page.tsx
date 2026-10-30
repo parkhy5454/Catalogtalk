@@ -201,7 +201,7 @@ export default function ChatThreadPage() {
     <main className="container section" style={{ paddingBottom: 110 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Link href="/dashboard/chat" className="btn btn-ghost">← 목록</Link>
-        <strong className="truncate" style={{ flex: 1 }}>{partner.company || '사업자 회원'}</strong>
+        <strong className="truncate" style={{ flex: 1 }}>{partner.company || '회원'}</strong>
         <button type="button" className="btn btn-ghost" onClick={rename}>이름</button>
         <button type="button" className="btn btn-ghost" onClick={leave}>나가기</button>
         <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
