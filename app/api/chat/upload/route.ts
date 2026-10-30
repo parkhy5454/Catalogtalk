@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { CHAT_FILE_BUCKET } from '@/lib/chat/files'
+import { CHAT_FILE_BUCKET, CHAT_FILES_PER_HOUR, CHAT_STORAGE_QUOTA_BYTES, hasMatchingSignature } from '@/lib/chat/files'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +35,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `${limit}까지 보낼 수 있어요` }, { status: 400 })
   }
 
+  // The file's first bytes must match its declared type.
+  if (!(await hasMatchingSignature(file, file.type))) {
+    return NextResponse.json({ error: '파일 형식이 올바르지 않아요' }, { status: 400 })
+  }
+
   // get_chat_thread returns a row only for members of the room.
   const { data: info } = await sb.rpc('get_chat_thread', { p_id: threadId })
   const thread = Array.isArray(info) ? info[0] : null
@@ -53,6 +58,28 @@ export async function POST(req: Request) {
     if (blocked && blocked.length > 0) {
       return NextResponse.json({ error: '차단된 대화라 보낼 수 없어요' }, { status: 403 })
     }
+  }
+
+  // Limits per member: files per hour and total stored bytes.
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count: recent } = await svc
+    .from('chat_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('sender_id', user.id)
+    .not('file_path', 'is', null)
+    .gte('created_at', since)
+  if ((recent ?? 0) >= CHAT_FILES_PER_HOUR) {
+    return NextResponse.json({ error: '잠시 후 다시 보내 주세요. 한 시간에 보낼 수 있는 파일 수를 넘었어요' }, { status: 429 })
+  }
+
+  const { data: sizes } = await svc
+    .from('chat_messages')
+    .select('file_size')
+    .eq('sender_id', user.id)
+    .not('file_path', 'is', null)
+  const used = (sizes ?? []).reduce((sum, r) => sum + (r.file_size ?? 0), 0)
+  if (used + file.size > CHAT_STORAGE_QUOTA_BYTES) {
+    return NextResponse.json({ error: '파일 보관 용량(1GB)을 넘었어요. 오래된 파일을 정리해 주세요' }, { status: 403 })
   }
 
   const path = `${threadId}/${randomUUID()}.${rule.ext}`
