@@ -380,9 +380,7 @@ export default function Viewer({ flipbook, pages }: Props) {
           {flipbook.pdf_url && (
             <a
               className="btn btn-dark viewer-pill"
-              href={flipbook.pdf_url}
-              target="_blank"
-              rel="noopener"
+              href={`/b/${flipbook.slug}/original`}
               title="원본 PDF는 글자가 가장 선명해요"
             >
               원본 파일
@@ -455,7 +453,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         <div className="viewer-empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <div>이 카탈로그는 모바일 뷰어 이미지가 아직 없어요.</div>
           {flipbook.pdf_url && (
-            <a className="btn btn-kakao" href={flipbook.pdf_url} target="_blank" rel="noopener">PDF 열기</a>
+            <a className="btn btn-kakao" href={`/b/${flipbook.slug}/original`}>PDF 열기</a>
           )}
         </div>
       )}
