@@ -1,4 +1,5 @@
 'use client'
+import PasswordInput from '@/components/password-input'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -159,9 +160,8 @@ export default function ProfilePage() {
           <form onSubmit={updatePassword} className="form-stack" style={{ marginTop: 28 }}>
             <label className="field">
               <span className="field-label">새 비밀번호</span>
-              <input
+              <PasswordInput
                 className="input"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 onFocus={scrollIntoViewOnFocus}

@@ -73,6 +73,11 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [views, setViews] = useState(flipbook.views || 0)
   // Signed-in visitors (normally the owner) get a way back to My Book.
   const [signedIn, setSignedIn] = useState(false)
+  // Offline support: the service worker keeps viewed catalogs for when the network is gone.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+  }, [])
   // One-time notice that the page turns are recorded for the publisher's statistics.
   const [noticeOpen, setNoticeOpen] = useState(false)
   useEffect(() => {

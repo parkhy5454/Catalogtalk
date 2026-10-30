@@ -1535,3 +1535,24 @@ body {
   min-width: 0;
   white-space: nowrap;
 }
+
+/* My Book: swipe left on a card to reveal the delete button */
+.fb-swipe-row {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  list-style: none;
+}
+.fb-swipe-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 88px;
+  border: 0;
+  background: #e5484d;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+.fb-swipe-delete:disabled { opacity: 0.6; }

@@ -98,6 +98,42 @@ export default function MyBookPage() {
     [supabase]
   )
 
+  // Swipe left on a card to reveal 삭제 (the delete still asks for confirmation).
+  const SWIPE_OPEN = -88
+  const [swipeOpenId, setSwipeOpenId] = useState<string | null>(null)
+  const [swipeDrag, setSwipeDrag] = useState<{ id: string; dx: number } | null>(null)
+  const swipeTouch = useRef<{ id: string; x: number; y: number; locked: boolean } | null>(null)
+  const swipeOffset = (id: string) =>
+    swipeDrag?.id === id ? swipeDrag.dx : swipeOpenId === id ? SWIPE_OPEN : 0
+  const onSwipeStart = (id: string, e: React.TouchEvent) => {
+    swipeTouch.current = { id, x: e.touches[0].clientX, y: e.touches[0].clientY, locked: false }
+  }
+  const onSwipeMove = (e: React.TouchEvent) => {
+    const t = swipeTouch.current
+    if (!t) return
+    const dx = e.touches[0].clientX - t.x
+    const dy = e.touches[0].clientY - t.y
+    if (!t.locked) {
+      // Vertical movement is a normal scroll: stop tracking the swipe.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        swipeTouch.current = null
+        return
+      }
+      if (Math.abs(dx) < 8) return
+      t.locked = true
+    }
+    const base = swipeOpenId === t.id ? SWIPE_OPEN : 0
+    setSwipeDrag({ id: t.id, dx: Math.max(-96, Math.min(0, base + dx)) })
+  }
+  const onSwipeEnd = () => {
+    const t = swipeTouch.current
+    swipeTouch.current = null
+    if (t && swipeDrag && swipeDrag.id === t.id) {
+      setSwipeOpenId(swipeDrag.dx < -48 ? t.id : null)
+    }
+    setSwipeDrag(null)
+  }
+
   // Pull to refresh: drag down from the top of the page, release past the threshold.
   useEffect(() => {
     const TRIGGER = 64
@@ -407,7 +443,38 @@ export default function MyBookPage() {
               const text = shareText(fb.title)
               const shareUrl = `${origin}/b/${fb.slug}`
               return (
-                <li key={fb.id} className="fb-item">
+                <li key={fb.id} className="fb-swipe-row">
+                  <button
+                    type="button"
+                    className="fb-swipe-delete"
+                    onClick={() => {
+                      setSwipeOpenId(null)
+                      handleDelete(fb)
+                    }}
+                    disabled={busy}
+                    aria-label={`${fb.title} 삭제`}
+                  >
+                    삭제
+                  </button>
+                  <div
+                    className="fb-item"
+                    style={{
+                      transform: `translateX(${swipeOffset(fb.id)}px)`,
+                      transition: swipeDrag ? 'none' : 'transform 0.2s ease',
+                      background: '#fff',
+                    }}
+                    onTouchStart={(e) => onSwipeStart(fb.id, e)}
+                    onTouchMove={onSwipeMove}
+                    onTouchEnd={onSwipeEnd}
+                    onClickCapture={(e) => {
+                      // While the delete button is showing, a tap on the card only closes it.
+                      if (swipeOpenId === fb.id) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setSwipeOpenId(null)
+                      }
+                    }}
+                  >
                   {fb.thumb_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img className="fb-thumb" src={fb.thumb_url} alt="" loading="lazy" decoding="async" />
@@ -484,6 +551,7 @@ export default function MyBookPage() {
                         삭제
                       </button>
                     </div>
+                  </div>
                   </div>
                 </li>
               )
