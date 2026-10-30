@@ -117,13 +117,13 @@ export default function SignupPage() {
               />
             </label>
             <label className="field">
-              <span className="sr-only">업무용 이메일</span>
+              <span className="sr-only">이메일</span>
               <input
                 className="input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onFocus={scrollIntoViewOnFocus}
-                placeholder="업무용 이메일"
+                placeholder="이메일"
                 type="email"
                 inputMode="email"
                 autoComplete="email"
@@ -154,7 +154,7 @@ export default function SignupPage() {
           이미 계정이 있나요? <Link href="/login">로그인</Link>
         </div>
         <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--muted)' }}>
-<Link href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>개인정보 처리방침</Link>을 확인해 주세요.
+<Link href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>개인정보 처리방침</Link>
         </div>
       </div>
     </div>
