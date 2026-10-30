@@ -51,6 +51,7 @@ export default function SignupPage() {
       email,
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
         data: {
           name: name.trim(),
           phone: phone.trim(),
