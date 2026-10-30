@@ -3540,3 +3540,105 @@ $$;
 grant execute on function get_products(text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 46. Customer CRM: pipeline stage, consultation notes, send history, customer timeline
+--   Customers are matched by contact (lowercased) across the owner's own catalogs.
+-- ============================================================
+alter table flipbook_leads add column if not exists stage text not null default 'contact';
+alter table flipbook_leads drop constraint if exists flipbook_leads_stage_chk;
+alter table flipbook_leads add constraint flipbook_leads_stage_chk
+  check (stage in ('contact', 'qualified', 'quote', 'negotiation', 'won', 'lost'));
+drop policy if exists flipbook_leads_owner_update on flipbook_leads;
+create policy flipbook_leads_owner_update on flipbook_leads for update to authenticated
+  using (can_manage_flipbook(flipbook_id)) with check (can_manage_flipbook(flipbook_id));
+
+create table if not exists lead_notes (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  lead_id uuid not null references flipbook_leads(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  body text not null check (char_length(body) between 1 and 1000),
+  created_at timestamptz not null default now()
+);
+create index if not exists lead_notes_lead_idx on lead_notes (lead_id, created_at);
+alter table lead_notes enable row level security;
+drop policy if exists lead_notes_manage on lead_notes;
+create policy lead_notes_manage on lead_notes for all to authenticated
+  using (can_manage_flipbook(flipbook_id))
+  with check (can_manage_flipbook(flipbook_id) and owner_id = auth.uid());
+
+create table if not exists lead_sends (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  lead_id uuid not null references flipbook_leads(id) on delete cascade,
+  kind text not null check (kind in ('notice', 'reorder')),
+  sent_at timestamptz not null default now()
+);
+create index if not exists lead_sends_lead_idx on lead_sends (lead_id, sent_at);
+alter table lead_sends enable row level security;
+drop policy if exists lead_sends_owner_select on lead_sends;
+create policy lead_sends_owner_select on lead_sends for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+-- Inserts come from the server (service role) only.
+
+create or replace function get_customer_timeline(p_lead uuid)
+returns table (kind text, at timestamptz, title text, detail text)
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_contact text;
+begin
+  select lower(btrim(l.contact)) into v_contact
+    from flipbook_leads l where l.id = p_lead and can_manage_flipbook(l.flipbook_id);
+  if v_contact is null then return; end if;
+
+  return query
+  select t.kind, t.at, t.title, t.detail from (
+    select 'lead'::text as kind, l.created_at as at, '문의 접수'::text as title, f.title::text as detail
+      from flipbook_leads l join flipbooks f on f.id = l.flipbook_id
+      where lower(btrim(l.contact)) = v_contact and can_manage_flipbook(l.flipbook_id)
+    union all
+    select 'visit'::text, min(fv.viewed_at), '카탈로그 열람'::text,
+           (f.title || ' · 약 ' || round(sum(coalesce(fv.dwell_ms, 0)) / 60000.0)::text || '분')::text
+      from flipbook_leads l
+      join flipbook_views fv on fv.session_id = l.session_id and fv.flipbook_id = l.flipbook_id
+      join flipbooks f on f.id = l.flipbook_id
+      where lower(btrim(l.contact)) = v_contact and can_manage_flipbook(l.flipbook_id)
+      group by f.id, f.title
+    union all
+    select 'quote'::text, qr.created_at, ('견적 요청 · ' || qr.status)::text, f.title::text
+      from quote_requests qr join flipbooks f on f.id = qr.flipbook_id
+      where lower(btrim(qr.contact)) = v_contact and can_manage_flipbook(qr.flipbook_id)
+    union all
+    select 'order'::text, o.created_at,
+           ('주문 요청 · ' || o.status || coalesce(' · ' || o.total::text || '원', ''))::text, f.title::text
+      from orders o join flipbooks f on f.id = o.flipbook_id
+      where lower(btrim(o.buyer_contact)) = v_contact and can_manage_flipbook(o.flipbook_id)
+    union all
+    select 'send'::text, s.sent_at,
+           (case when s.kind = 'reorder' then '재구매 안내 메일' else '소식 메일' end)::text, f.title::text
+      from lead_sends s
+      join flipbook_leads l on l.id = s.lead_id
+      join flipbooks f on f.id = s.flipbook_id
+      where lower(btrim(l.contact)) = v_contact and can_manage_flipbook(s.flipbook_id)
+    union all
+    select 'note'::text, n.created_at, '상담 메모'::text, n.body::text
+      from lead_notes n join flipbook_leads l on l.id = n.lead_id
+      where lower(btrim(l.contact)) = v_contact and can_manage_flipbook(n.flipbook_id)
+    union all
+    select 'reorder_due'::text, (m.last_at + make_interval(days => f.reorder_days)), '재구매 시기 (예상)'::text, f.title::text
+      from (
+        select o.flipbook_id, max(o.created_at) as last_at from orders o
+        where lower(btrim(o.buyer_contact)) = v_contact and can_manage_flipbook(o.flipbook_id)
+        group by o.flipbook_id
+      ) m
+      join flipbooks f on f.id = m.flipbook_id
+      where f.reorder_days is not null
+  ) t
+  order by t.at desc nulls last;
+end $$;
+revoke all on function get_customer_timeline(uuid) from public, anon;
+grant execute on function get_customer_timeline(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

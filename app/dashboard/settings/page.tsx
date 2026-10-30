@@ -87,6 +87,10 @@ export default function SettingsPage() {
               <span aria-hidden="true">›</span>
             </Link>
           )}
+          <Link className="menu-item" href="/dashboard/pipeline">
+            <span>📋 고객 파이프라인</span>
+            <span aria-hidden="true">›</span>
+          </Link>
           <Link className="menu-item" href="/dashboard/deals">
             <span>💼 거래 기록</span>
             <span aria-hidden="true">›</span>
