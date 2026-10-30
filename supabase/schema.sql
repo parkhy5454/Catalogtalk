@@ -1718,3 +1718,70 @@ grant execute on function send_friend_request(uuid) to authenticated;
 grant execute on function list_my_friends() to authenticated;
 grant execute on function list_chat_threads() to authenticated;
 notify pgrst, 'reload schema';
+
+-- 25. Photo and PDF messages (v25) ----------------------------------------
+-- Files are stored in the private bucket "chat-files" and sent through /api/chat/upload.
+-- Downloads go through /api/chat/file, which checks membership and issues a short signed link.
+alter table chat_messages add column if not exists file_path text;
+alter table chat_messages add column if not exists file_name text;
+alter table chat_messages add column if not exists file_type text;
+alter table chat_messages add column if not exists file_size int;
+alter table chat_messages drop constraint if exists chat_messages_check;
+alter table chat_messages add constraint chat_messages_has_content check (
+  char_length(body) > 0 or catalog_slug is not null or file_path is not null
+);
+
+insert into storage.buckets (id, name, public) values ('chat-files', 'chat-files', false)
+on conflict (id) do nothing;
+
+drop function if exists list_chat_threads();
+create function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text, alias text,
+  last_message_at timestamptz, last_body text, unread int, pinned boolean, is_group boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.is_group then null else case when t.user_a = auth.uid() then t.user_b else t.user_a end end,
+    case when t.is_group then coalesce(t.title, (
+      select string_agg(x.n, ', ') from (
+        select coalesce(c.company_name, c.name) as n from chat_members m
+          join customers c on c.user_id = m.user_id
+         where m.thread_id = t.id and m.left_at is null and m.user_id <> auth.uid()
+         limit 3) x))
+    else (select coalesce(c.company_name, c.name) from customers c
+            where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end)
+    end,
+    (select p.alias from chat_thread_prefs p where p.user_id = auth.uid() and p.thread_id = t.id),
+    t.last_message_at,
+    (select case
+              when m.body <> '' then m.body
+              when m.file_path is not null and m.file_type like 'image/%' then '[사진]'
+              when m.file_path is not null then '[파일] ' || coalesce(m.file_name, '')
+              else '[카탈로그] ' || coalesce(m.catalog_title, '')
+            end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz)),
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()),
+    t.is_group
+  from chat_threads t
+  where is_thread_member(t.id, auth.uid())
+    and not (not t.is_group and is_blocked_between(t.user_a, t.user_b))
+    and not exists (
+      select 1 from chat_thread_prefs p
+      where p.thread_id = t.id and p.user_id = auth.uid()
+        and p.hidden_at is not null and t.last_message_at <= p.hidden_at
+    )
+  order by
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()) desc,
+    t.last_message_at desc
+$$;
+
+grant execute on function list_chat_threads() to authenticated;
+notify pgrst, 'reload schema';

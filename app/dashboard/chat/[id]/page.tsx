@@ -13,6 +13,10 @@ type Msg = {
   catalog_slug: string | null
   catalog_thumb: string | null
   created_at: string
+  file_path: string | null
+  file_name: string | null
+  file_type: string | null
+  file_size: number | null
 }
 
 type Own = { id: string; title: string; slug: string; thumb_url: string | null }
@@ -38,6 +42,11 @@ const MENU_ITEM: React.CSSProperties = {
 
 function dayKey(iso: string) {
   return new Date(iso).toDateString()
+}
+
+function sizeLabel(bytes: number | null) {
+  if (!bytes) return ''
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`
 }
 
 function dayLabel(iso: string) {
@@ -68,6 +77,7 @@ export default function ChatThreadPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [receipts, setReceipts] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const loadMembers = useCallback(async () => {
     const { data } = await supabase.rpc('get_chat_members', { p_thread: id })
@@ -113,7 +123,7 @@ export default function ChatThreadPage() {
 
       const { data: rows, error: msgErr } = await supabase
         .from('chat_messages')
-        .select('id, sender_id, body, catalog_title, catalog_slug, catalog_thumb, created_at')
+        .select('id, sender_id, body, catalog_title, catalog_slug, catalog_thumb, created_at, file_path, file_name, file_type, file_size')
         .eq('thread_id', id)
         .order('created_at', { ascending: true })
         .limit(300)
@@ -167,7 +177,7 @@ export default function ChatThreadPage() {
         catalog_slug: payload.catalog?.slug ?? null,
         catalog_thumb: payload.catalog?.thumb_url ?? null,
       })
-      .select('id, sender_id, body, catalog_title, catalog_slug, catalog_thumb, created_at')
+      .select('id, sender_id, body, catalog_title, catalog_slug, catalog_thumb, created_at, file_path, file_name, file_type, file_size')
       .single()
     setBusy(false)
     if (sendErr || !data) {
@@ -196,6 +206,27 @@ export default function ChatThreadPage() {
       .eq('user_id', me)
       .order('created_at', { ascending: false })
     setCatalogs((data as Own[]) ?? [])
+  }
+
+  const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0]
+    e.target.value = ''
+    if (!picked || !me) return
+    setBusy(true)
+    setError(null)
+    const fd = new FormData()
+    fd.append('file', picked)
+    fd.append('thread_id', id)
+    const res = await fetch('/api/chat/upload', { method: 'POST', body: fd })
+    setBusy(false)
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: Msg }
+    if (!res.ok || !body.message) {
+      setError(body.error ?? '파일을 보내지 못했어요')
+      return
+    }
+    const row = body.message
+    setMessages((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]))
+    void loadReaders()
   }
 
   const saveCatalog = async (m: Msg) => {
@@ -443,6 +474,31 @@ export default function ChatThreadPage() {
                       <span className="truncate" style={{ fontWeight: 600 }}>{m.catalog_title || '카탈로그'}</span>
                     </a>
                   )}
+                  {m.file_path && (
+                    m.file_type?.startsWith('image/') ? (
+                      <a href={`/api/chat/file?id=${m.id}`} target="_blank" rel="noreferrer" style={{ display: 'block', borderRadius: 14, overflow: 'hidden' }}>
+                        <img
+                          src={`/api/chat/file?id=${m.id}`}
+                          alt={m.file_name ?? '사진'}
+                          loading="lazy"
+                          style={{ display: 'block', maxWidth: 240, maxHeight: 320, width: 'auto', height: 'auto' }}
+                        />
+                      </a>
+                    ) : (
+                      <a
+                        href={`/api/chat/file?id=${m.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: 'flex', gap: 10, alignItems: 'center', maxWidth: 260, padding: '10px 12px', background: '#fff', borderRadius: 14, boxShadow: '0 1px 2px rgba(0,0,0,0.06)', color: 'inherit', textDecoration: 'none' }}
+                      >
+                        <span aria-hidden="true" style={{ fontSize: 22 }}>📄</span>
+                        <span style={{ minWidth: 0 }}>
+                          <span className="truncate" style={{ display: 'block', fontWeight: 600, fontSize: 14 }}>{m.file_name || '파일'}</span>
+                          <span style={{ fontSize: 11, color: '#8a8a8a' }}>{sizeLabel(m.file_size)}</span>
+                        </span>
+                      </a>
+                    )
+                  )}
                   {m.body && (
                     <div
                       style={{
@@ -559,6 +615,22 @@ export default function ChatThreadPage() {
         >
           📎
         </button>
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={busy}
+          aria-label="사진이나 PDF 보내기"
+          style={{ width: 40, height: 40, borderRadius: 20, border: 0, background: 'transparent', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}
+        >
+          🖼
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          onChange={sendFile}
+          hidden
+        />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}

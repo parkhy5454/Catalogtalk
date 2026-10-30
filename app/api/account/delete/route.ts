@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { CHAT_FILE_BUCKET } from '@/lib/chat/files'
 import { PRIVATE_BUCKET, PRIVATE_PREFIX, PUBLIC_BUCKET, privatePathOf } from '@/lib/flipbook/storage'
 
 export const dynamic = 'force-dynamic'
@@ -41,6 +42,15 @@ export async function POST() {
     const unique = paths.filter((p, i) => paths.indexOf(p) === i)
     if (unique.length) await svc.storage.from(bucket).remove(unique).catch(() => undefined)
   }
+
+  // Chat photos and PDFs the user sent are removed with the account.
+  const { data: chatFiles } = await svc
+    .from('chat_messages')
+    .select('file_path')
+    .eq('sender_id', user.id)
+    .not('file_path', 'is', null)
+  const chatPaths = (chatFiles ?? []).map((r) => r.file_path as string).filter(Boolean)
+  if (chatPaths.length > 0) await svc.storage.from(CHAT_FILE_BUCKET).remove(chatPaths).catch(() => undefined)
 
   const { error } = await svc.auth.admin.deleteUser(user.id)
   if (error) return NextResponse.json({ error: '탈퇴 처리에 실패했어요. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
