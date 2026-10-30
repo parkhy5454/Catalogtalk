@@ -36,6 +36,22 @@ function useIsWide() {
   return wide
 }
 
+// Tracks the browser's online state so offline-only features can say why they are unavailable.
+function useOnline() {
+  const [online, setOnline] = useState(true)
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine)
+    sync()
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+  return online
+}
+
 function readSoundPref(): boolean {
   try {
     return localStorage.getItem(SOUND_KEY) !== 'off'
@@ -56,6 +72,7 @@ const isTouchUI = () => typeof window !== 'undefined' && !!window.matchMedia?.('
 
 export default function Viewer({ flipbook, pages }: Props) {
   const wide = useIsWide()
+  const online = useOnline()
   const areaRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<PageFlip | null>(null)
   const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
@@ -400,7 +417,7 @@ export default function Viewer({ flipbook, pages }: Props) {
               {soundOn ? '🔊' : '🔇'}
             </button>
           )}
-          {flipbook.pdf_url && (
+          {flipbook.pdf_url && (online ? (
             <a
               className="btn btn-dark viewer-pill"
               href={`/b/${flipbook.slug}/original`}
@@ -408,7 +425,16 @@ export default function Viewer({ flipbook, pages }: Props) {
             >
               원본 파일
             </a>
-          )}
+          ) : (
+            <span
+              className="btn btn-dark viewer-pill"
+              aria-disabled="true"
+              title="원본은 온라인에서만 볼 수 있어요"
+              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+            >
+              원본 (온라인 전용)
+            </span>
+          ))}
         </div>
       </header>
       {noticeOpen && (
@@ -481,9 +507,11 @@ export default function Viewer({ flipbook, pages }: Props) {
       ) : (
         <div className="viewer-empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <div>이 카탈로그는 모바일 뷰어 이미지가 아직 없어요.</div>
-          {flipbook.pdf_url && (
+          {flipbook.pdf_url && (online ? (
             <a className="btn btn-kakao" href={`/b/${flipbook.slug}/original`}>PDF 열기</a>
-          )}
+          ) : (
+            <div>원본 PDF는 온라인에서만 볼 수 있어요.</div>
+          ))}
         </div>
       )}
 
