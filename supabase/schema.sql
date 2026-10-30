@@ -381,3 +381,55 @@ create trigger on_auth_user_referral_reward
   after insert or update of email_confirmed_at on auth.users
   for each row execute function reward_referral();
 notify pgrst, 'reload schema';
+
+-- 10. Private catalog files (v10) ---------------------------------------
+-- BEFORE running this: in Supabase Storage create the bucket "flipbook-private" with
+-- Public = OFF. Pages and originals of new catalogs live there and are served only through
+-- short-lived signed URLs (see lib/flipbook/sign.ts and app/api/original). Thumbnails stay in
+-- the public "flipbook-files" bucket so link-preview crawlers can read them.
+-- Anonymous visitors get no policy here, so they cannot read the bucket at all.
+drop policy if exists flipbook_private_insert on storage.objects;
+create policy flipbook_private_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'flipbook-private');
+drop policy if exists flipbook_private_update_own on storage.objects;
+create policy flipbook_private_update_own on storage.objects for update to authenticated
+  using (bucket_id = 'flipbook-private' and owner = auth.uid());
+-- Owners may read and delete files under their own catalog folders (folder = slug or row id).
+drop policy if exists flipbook_private_select_own on storage.objects;
+create policy flipbook_private_select_own on storage.objects for select to authenticated
+  using (
+    bucket_id = 'flipbook-private'
+    and (storage.foldername(name))[1] in (
+      select slug from flipbooks where user_id = auth.uid()
+      union select id::text from flipbooks where user_id = auth.uid()
+    )
+  );
+drop policy if exists flipbook_private_delete_own on storage.objects;
+create policy flipbook_private_delete_own on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'flipbook-private'
+    and (storage.foldername(name))[1] in (
+      select slug from flipbooks where user_id = auth.uid()
+      union select id::text from flipbooks where user_id = auth.uid()
+    )
+  );
+
+-- 11. Flipbook password (v11) ------------------------------------------
+-- Stored as a scrypt hash (set by the owner through the app). Anonymous readers only learn
+-- has_password through get_flipbook; the hash itself is never returned to them.
+alter table flipbooks add column if not exists password_hash text;
+
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null
+  from flipbooks f where f.slug = p_slug and f.is_public limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+notify pgrst, 'reload schema';

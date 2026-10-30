@@ -432,7 +432,7 @@ export default function Viewer({ flipbook, pages }: Props) {
               title="원본은 온라인에서만 볼 수 있어요"
               style={{ opacity: 0.5, cursor: 'not-allowed' }}
             >
-              원본 (온라인 전용)
+              원본 파일
             </span>
           ))}
         </div>

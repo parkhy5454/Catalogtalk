@@ -76,11 +76,15 @@ export default function MyBookPage() {
     async (uid: string) => {
       const { data, error } = await supabase
         .from('flipbooks')
-        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public')
+        .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public, password_hash')
         .eq('user_id', uid)
         .order('created_at', { ascending: false })
       if (error) setMessage({ kind: 'error', text: friendlyError(error) })
-      else setFlipbooks((data as FlipbookRow[]) ?? [])
+      else {
+        // Keep only a yes/no flag in the UI state; the hash stays out of React state.
+        const rows = (data ?? []) as (FlipbookRow & { password_hash: string | null })[]
+        setFlipbooks(rows.map(({ password_hash, ...rest }) => ({ ...rest, has_password: !!password_hash })))
+      }
     },
     [supabase]
   )
@@ -250,6 +254,35 @@ export default function MyBookPage() {
     }
     setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, is_public: next } : f)))
     setMessage({ kind: 'success', text: next ? '링크를 다시 열었어요' : '링크를 껐어요' })
+  }
+
+  const handlePassword = async (fb: FlipbookRow) => {
+    setMessage(null)
+    let next: string | null = null
+    if (fb.has_password) {
+      const ok = window.confirm(`"${fb.title}" 비밀번호를 해제할까요?\n해제하면 링크만 있으면 누구나 볼 수 있어요.`)
+      if (!ok) return
+    } else {
+      const input = window.prompt('받는 사람이 입력할 비밀번호를 정해 주세요 (4~30자)')
+      if (input === null) return
+      if (input.trim().length < 4 || input.length > 30) {
+        setMessage({ kind: 'error', text: '비밀번호는 4~30자로 입력해 주세요' })
+        return
+      }
+      next = input
+    }
+    const res = await fetch(`/api/flipbook/${encodeURIComponent(fb.slug)}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: next }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setMessage({ kind: 'error', text: body.error ?? '비밀번호를 바꾸지 못했어요' })
+      return
+    }
+    setFlipbooks((prev) => prev.map((f) => (f.id === fb.id ? { ...f, has_password: next !== null } : f)))
+    setMessage({ kind: 'success', text: next !== null ? '비밀번호를 설정했어요' : '비밀번호를 해제했어요' })
   }
 
   const handleDelete = async (fb: FlipbookRow) => {
@@ -485,6 +518,7 @@ export default function MyBookPage() {
                     <div className="fb-title truncate" title={fb.title}>
                       {fb.title}
                       {!fb.is_public && <span className="pill" style={{ marginLeft: 6 }}>링크 꺼짐</span>}
+                      {fb.has_password && <span className="pill" style={{ marginLeft: 6 }}>비밀번호</span>}
                     </div>
                     <div className="fb-meta">
                       <span className="truncate" style={{ maxWidth: '100%' }}>/b/{fb.slug}</span>
@@ -532,6 +566,9 @@ export default function MyBookPage() {
                     <div className="fb-actions-row fb-card-actions">
                       <button type="button" className="btn btn-ghost" onClick={() => toggleShare(fb)}>
                         {fb.is_public ? '링크 끄기' : '링크 켜기'}
+                      </button>
+                      <button type="button" className="btn btn-ghost" onClick={() => handlePassword(fb)}>
+                        {fb.has_password ? '비밀번호 해제' : '비밀번호 설정'}
                       </button>
                       <button type="button" className="btn btn-ghost" onClick={() => router.push(`/dashboard/stats/${fb.id}`)}>
                         통계

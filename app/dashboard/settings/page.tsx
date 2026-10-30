@@ -11,6 +11,10 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawError, setWithdrawError] = useState<string | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -32,6 +36,25 @@ export default function SettingsPage() {
     await supabase.auth.signOut()
     router.replace('/')
     router.refresh()
+  }
+
+  const handleWithdraw = async () => {
+    if (confirmText !== '탈퇴' || withdrawing) return
+    setWithdrawing(true)
+    setWithdrawError(null)
+    try {
+      const res = await fetch('/api/account/delete', { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? '탈퇴 처리에 실패했어요')
+      }
+      await supabase.auth.signOut()
+      router.replace('/')
+      router.refresh()
+    } catch (e) {
+      setWithdrawError(e instanceof Error ? e.message : '탈퇴 처리에 실패했어요')
+      setWithdrawing(false)
+    }
   }
 
   return (
@@ -64,6 +87,39 @@ export default function SettingsPage() {
         <button type="button" className="btn btn-danger btn-block" style={{ marginTop: 20 }} onClick={handleLogout}>
           로그아웃
         </button>
+
+        <div style={{ marginTop: 28, borderTop: '1px solid var(--line, #eee)', paddingTop: 16 }}>
+          {!withdrawOpen ? (
+            <button type="button" className="btn btn-ghost btn-block" onClick={() => setWithdrawOpen(true)}>
+              회원 탈퇴
+            </button>
+          ) : (
+            <div className="form-stack">
+              <div className="notice notice-error">
+                탈퇴하면 모든 카탈로그, 공유 링크, 조회 통계가 삭제되고 되돌릴 수 없어요.
+              </div>
+              <label className="field">
+                <span className="field-label">탈퇴하려면 아래 칸에 &quot;탈퇴&quot;라고 입력해 주세요</span>
+                <input
+                  className="input"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  disabled={withdrawing}
+                  autoComplete="off"
+                />
+              </label>
+              {withdrawError && <div className="notice notice-error" role="alert">{withdrawError}</div>}
+              <button
+                type="button"
+                className="btn btn-danger btn-block"
+                disabled={confirmText !== '탈퇴' || withdrawing}
+                onClick={handleWithdraw}
+              >
+                {withdrawing ? '탈퇴 처리 중...' : '탈퇴하고 모든 데이터 삭제'}
+              </button>
+            </div>
+          )}
+        </div>
       </section>
     </main>
   )

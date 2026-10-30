@@ -32,8 +32,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(cacheFirst(req, SHELL))
     return
   }
-  if (req.destination === 'image' && url.pathname.includes('/storage/v1/object/public/')) {
-    event.respondWith(cacheFirst(req, IMAGES))
+  if (req.destination === 'image' && url.pathname.includes('/storage/v1/object/')) {
+    // Signed URLs change on every page load, so the cache key is the object path without the token.
+    const key = url.pathname.includes('/object/sign/') ? new Request(url.origin + url.pathname) : req
+    event.respondWith(cacheFirst(req, IMAGES, key))
   }
 })
 
@@ -53,11 +55,11 @@ async function networkFirst(req, cacheName) {
   }
 }
 
-async function cacheFirst(req, cacheName) {
+async function cacheFirst(req, cacheName, keyReq = req) {
   const cache = await caches.open(cacheName)
-  const hit = await cache.match(req)
+  const hit = await cache.match(keyReq)
   if (hit) return hit
   const res = await fetch(req)
-  if (res.ok || res.type === 'opaque') cache.put(req, res.clone())
+  if (res.ok || res.type === 'opaque') cache.put(keyReq, res.clone())
   return res
 }
