@@ -2744,3 +2744,66 @@ revoke all on function count_notify_recipients(uuid) from public, anon;
 grant execute on function count_notify_recipients(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 37. Sales priority from viewing data (v37) ---------------------------------
+
+-- Each lead gets a score from the visit that produced it (same session):
+--   time spent (up to 20), pages reached (up to 10), finished the catalog (+30),
+--   requested a quote in the same visit (+40). Owners and team members only.
+create or replace function get_lead_priorities(p_flipbook uuid)
+returns table (
+  lead_id uuid,
+  name text,
+  contact text,
+  marketing_consent boolean,
+  lead_created_at timestamptz,
+  max_page int,
+  page_count int,
+  dwell_ms bigint,
+  finished boolean,
+  quote_requested boolean,
+  score int
+)
+language sql stable security definer set search_path = public
+as $$
+  with pc as (
+    select f.page_count from flipbooks f where f.id = p_flipbook
+  ),
+  v as (
+    select fv.session_id, max(fv.page_no) as maxp, coalesce(sum(fv.dwell_ms), 0) as dwell
+    from flipbook_views fv
+    where fv.flipbook_id = p_flipbook and fv.session_id is not null
+    group by fv.session_id
+  ),
+  base as (
+    select l.id, l.name, l.contact, l.marketing_consent, l.created_at, l.session_id,
+           coalesce(v.maxp, 0) as maxp,
+           coalesce(v.dwell, 0) as dwell,
+           (q.id is not null) as asked
+    from flipbook_leads l
+    left join v on v.session_id = l.session_id
+    left join lateral (
+      select qr.id from quote_requests qr
+      where qr.flipbook_id = p_flipbook and qr.session_id = l.session_id
+      limit 1
+    ) q on true
+    where l.flipbook_id = p_flipbook
+      and can_manage_flipbook(p_flipbook)
+  )
+  select b.id, b.name, b.contact, b.marketing_consent, b.created_at,
+         b.maxp, coalesce(pc.page_count, 0), b.dwell,
+         (coalesce(pc.page_count, 0) > 0 and b.maxp >= pc.page_count) as finished,
+         b.asked,
+         (least(b.dwell / 60000.0, 10) * 2
+          + least(b.maxp, 10)
+          + case when coalesce(pc.page_count, 0) > 0 and b.maxp >= pc.page_count then 30 else 0 end
+          + case when b.asked then 40 else 0 end)::int as score
+  from base b
+  cross join pc
+  order by score desc, b.created_at desc;
+$$;
+
+revoke all on function get_lead_priorities(uuid) from public, anon;
+grant execute on function get_lead_priorities(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

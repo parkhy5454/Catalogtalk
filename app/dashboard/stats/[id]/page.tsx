@@ -311,6 +311,16 @@ export default function FlipbookStatsPage() {
         </div>
       </section>
 
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="priority-card-title">
+        <h2 className="panel-title" id="priority-card-title" style={{ fontSize: 16 }}>영업 우선순위</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          연락처를 남긴 분을 열람 기록으로 순위를 매겨 어디부터 연락할지 정할 수 있어요.
+        </p>
+        <div style={{ marginTop: 10 }}>
+          <Link href={`/dashboard/priority/${id}`} className="btn btn-ghost">우선순위 보기</Link>
+        </div>
+      </section>
+
       <section className="panel" style={{ marginTop: 16 }} aria-labelledby="notify-card-title">
         <h2 className="panel-title" id="notify-card-title" style={{ fontSize: 16 }}>알림 보내기</h2>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
