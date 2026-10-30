@@ -1509,3 +1509,17 @@ body {
   width: auto !important;
   min-width: 0;
 }
+
+/* Viewer: one-time notice about view logs */
+.view-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #1a1a1a;
+  color: #ddd;
+}
+.view-notice span { flex: 1; min-width: 0; }
+.view-notice-btn { min-height: 36px; padding: 0 12px; flex-shrink: 0; }

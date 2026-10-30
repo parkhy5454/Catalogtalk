@@ -19,6 +19,7 @@ function visitId(): string {
 }
 
 const SOUND_KEY = 'catalogtalk-page-sound'
+const NOTICE_KEY = 'catalogtalk-view-notice-ok'
 const BOOK_WIDTH = 1000 // logical page width; the library scales it to the container
 
 type Props = { flipbook: FlipbookPublic; pages: PageImage[] }
@@ -72,6 +73,23 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [views, setViews] = useState(flipbook.views || 0)
   // Signed-in visitors (normally the owner) get a way back to My Book.
   const [signedIn, setSignedIn] = useState(false)
+  // One-time notice that the page turns are recorded for the publisher's statistics.
+  const [noticeOpen, setNoticeOpen] = useState(false)
+  useEffect(() => {
+    try {
+      setNoticeOpen(localStorage.getItem(NOTICE_KEY) !== '1')
+    } catch {
+      setNoticeOpen(false)
+    }
+  }, [])
+  const dismissNotice = () => {
+    try {
+      localStorage.setItem(NOTICE_KEY, '1')
+    } catch {
+      /* private mode: the notice may show again */
+    }
+    setNoticeOpen(false)
+  }
   useEffect(() => {
     createClient()
       .auth.getSession()
@@ -388,6 +406,12 @@ export default function Viewer({ flipbook, pages }: Props) {
           )}
         </div>
       </header>
+      {noticeOpen && (
+        <div className="view-notice" role="note">
+          <span>쪽 넘김 기록(쪽 번호, 머문 시간, 기기 종류)이 발행자 통계에 쓰여요. 기록은 1년 뒤 자동 삭제돼요.</span>
+          <button type="button" onClick={dismissNotice} className="btn btn-ghost view-notice-btn">확인</button>
+        </div>
+      )}
 
       {hasPages && ratio !== null ? (
         <>

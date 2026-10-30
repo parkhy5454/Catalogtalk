@@ -343,3 +343,22 @@ alter table customers add column if not exists is_admin boolean not null default
 update customers set is_admin = true
   where user_id = (select id from auth.users where email = 'parkhy5454@gmail.com');
 notify pgrst, 'reload schema';
+
+-- 8. Retention of view logs (v8) ---------------------------------------
+-- Visit logs contain page numbers, time spent and device type. They are kept for 365 days.
+create or replace function purge_old_flipbook_views()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from flipbook_views where viewed_at < now() - interval '365 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end $$;
+revoke all on function purge_old_flipbook_views() from public, anon, authenticated;
+
+-- Runs every day at 03:00 (UTC). Requires the pg_cron extension
+-- (Supabase: Database → Extensions → pg_cron → enable), then run this once:
+-- select cron.schedule('purge-flipbook-views', '0 3 * * *', $$select purge_old_flipbook_views()$$);
