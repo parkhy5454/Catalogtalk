@@ -1,21 +1,30 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { playPageTurn, unlockAudio } from '@/lib/flipbook/sound'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
+import type { PageFlip } from 'page-flip'
+import ZoomView from './zoom-view'
 
-const MIN_ZOOM = 1
-const MAX_ZOOM = 4
-const DOUBLE_TAP_ZOOM = 2.5
-const SWIPE_MIN_PX = 50
-const TAP_SLOP_PX = 10
-const DOUBLE_TAP_MS = 300
+// One id per page load (one visit). Lets the owner group rows into visits.
+let cachedVisitId: string | null = null
+function visitId(): string {
+  if (!cachedVisitId) {
+    cachedVisitId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36)
+  }
+  return cachedVisitId
+}
+
+const SOUND_KEY = 'catalogtalk-page-sound'
+const NOTICE_KEY = 'catalogtalk-view-notice-ok'
+const BOOK_WIDTH = 1000 // logical page width; the library scales it to the container
 
 type Props = { flipbook: FlipbookPublic; pages: PageImage[] }
-type Dir = 'next' | 'prev' | null
-type Pt = { x: number; y: number }
 
 function useIsWide() {
-  // Mobile-first: start as phone layout, switch to two-page spreads at >= 768px.
   const [wide, setWide] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)')
@@ -27,104 +36,255 @@ function useIsWide() {
   return wide
 }
 
-const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+function readSoundPref(): boolean {
+  try {
+    return localStorage.getItem(SOUND_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+function saveSoundPref(on: boolean) {
+  try {
+    localStorage.setItem(SOUND_KEY, on ? 'on' : 'off')
+  } catch {
+    /* private mode: keep it in memory only */
+  }
+}
+
+const isTouchUI = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
 
 export default function Viewer({ flipbook, pages }: Props) {
   const wide = useIsWide()
-  const [pageIdx, setPageIdx] = useState(0)          // 0-based page currently shown
-  const [views, setViews] = useState(flipbook.views || 0)
-  const [zoom, setZoom] = useState(MIN_ZOOM)
-  const [pan, setPan] = useState<Pt>({ x: 0, y: 0 })
-  const [dragX, setDragX] = useState(0)
-  const [flip, setFlip] = useState<{ key: number; dir: Dir }>({ key: 0, dir: null })
+  const areaRef = useRef<HTMLDivElement>(null)
+  const bookRef = useRef<PageFlip | null>(null)
+  const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
+  const skipFlipSound = useRef(false) // a slide-in already played its sound
+  const soundRef = useRef(true)
 
-  const stageRef = useRef<HTMLDivElement>(null)
-  const pointers = useRef(new Map<number, Pt>())
-  const gesture = useRef({
-    startPt: { x: 0, y: 0 } as Pt,
-    startPan: { x: 0, y: 0 } as Pt,
-    startZoom: MIN_ZOOM,
-    startDist: 0,
-    pinched: false,
-    moved: false,
-    startedAt: 0,
-  })
-  const lastTap = useRef<{ t: number; p: Pt } | null>(null)
-  const counted = useRef(false)
+  const urls = pages.map((p) => p.image_url)
+  const total = urls.length
+
+  const [ratio, setRatio] = useState<number | null>(null) // page height / width
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null)
+  const [ready, setReady] = useState(false)
+  const [pageIdx, setPageIdx] = useState(0)
+  const pageIdxRef = useRef(0) // survives book re-creation (e.g. on rotation)
+  const [views, setViews] = useState(flipbook.views || 0)
+  // Signed-in visitors (normally the owner) get a way back to My Book.
+  const [signedIn, setSignedIn] = useState(false)
+  // One-time notice that the page turns are recorded for the publisher's statistics.
+  const [noticeOpen, setNoticeOpen] = useState(false)
+  useEffect(() => {
+    try {
+      setNoticeOpen(localStorage.getItem(NOTICE_KEY) !== '1')
+    } catch {
+      setNoticeOpen(false)
+    }
+  }, [])
+  const dismissNotice = () => {
+    try {
+      localStorage.setItem(NOTICE_KEY, '1')
+    } catch {
+      /* private mode: the notice may show again */
+    }
+    setNoticeOpen(false)
+  }
+  useEffect(() => {
+    createClient()
+      .auth.getSession()
+      .then(({ data }) => setSignedIn(!!data.session))
+      .catch(() => setSignedIn(false))
+  }, [])
+  const [soundOn, setSoundOn] = useState(true)
+  const [zoomIdx, setZoomIdx] = useState<number | null>(null)
+  // Vertical swipe toggles the chrome (header and controls), like a video player.
+  const [uiHidden, setUiHidden] = useState(false)
   const track = useRef({ page: 0, since: 0 })
 
-  const total = pages.length
-
-  // Spreads: phone = one page per screen; tablet/desktop = [1], [2,3], [4,5] ...
-  const spreads = useMemo(() => {
-    if (!wide) return pages.map((_, i) => [i])
-    const out: number[][] = []
-    if (pages.length === 0) return out
-    out.push([0])
-    for (let i = 1; i < pages.length; i += 2) {
-      out.push(i + 1 < pages.length ? [i, i + 1] : [i])
-    }
-    return out
-  }, [pages, wide])
-
-  const spreadIdx = useMemo(() => {
-    if (!wide) return pageIdx
-    if (pageIdx === 0) return 0
-    return Math.floor((pageIdx + 1) / 2)
-  }, [pageIdx, wide])
-
-  const currentSpread = spreads[spreadIdx] ?? []
-  const canPrev = spreadIdx > 0
-  const canNext = spreadIdx < spreads.length - 1
-
-  const goToSpread = useCallback(
-    (nextSpread: number) => {
-      if (nextSpread < 0 || nextSpread >= spreads.length) return
-      const firstPage = spreads[nextSpread][0]
-      setFlip((f) => ({ key: f.key + 1, dir: nextSpread > spreadIdx ? 'next' : 'prev' }))
-      setPageIdx(firstPage)
-      setZoom(MIN_ZOOM)
-      setPan({ x: 0, y: 0 })
-    },
-    [spreads, spreadIdx]
-  )
-
-  const next = useCallback(() => goToSpread(spreadIdx + 1), [goToSpread, spreadIdx])
-  const prev = useCallback(() => goToSpread(spreadIdx - 1), [goToSpread, spreadIdx])
-
-  // Keyboard arrows (desktop / tablet with keyboard).
+  // 1. Read the page shape from the first image so the book keeps the catalog's proportions.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') next()
-      if (e.key === 'ArrowLeft') prev()
+    if (!urls[0]) return
+    const img = new Image()
+    img.onload = () => {
+      if (img.naturalWidth > 0) setRatio(img.naturalHeight / img.naturalWidth)
+      else setRatio(1.414)
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [next, prev])
-
-  // Count one view per page load. Ref guard protects against double effects in dev.
-  useEffect(() => {
-    if (counted.current) return
-    counted.current = true
-    const supabase = createClient()
-    supabase.rpc('increment_view', { fb_id: flipbook.id }).then(() => {})
-    setViews((v) => v + 1)
+    img.onerror = () => setRatio(1.414)
+    img.src = urls[0]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flipbook.id])
 
-  // Page-level analytics: each page change logs the dwell time of the page just left.
+  // Measure the book area so the page size always fits it (phone: one page; wide: two-page spread).
+  useEffect(() => {
+    const area = areaRef.current
+    if (!area || ratio === null) return
+    const measure = () => {
+      // Side gutter mirrors the CSS breakpoints (16 / 24 / 32px).
+      const gutter = window.innerWidth >= 1200 ? 32 : window.innerWidth >= 768 ? 24 : 16
+      setBox({ w: area.clientWidth - gutter * 2, h: area.clientHeight - 16 })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(area)
+    return () => ro.disconnect()
+  }, [ratio, total])
+
+  // Page width in CSS px, rounded so tiny resizes do not rebuild the book.
+  // Always one page at a time (phones and tablets alike); the book is kept narrower than
+  // two pages so page-flip never switches to a two-page spread.
+  const pageW = (() => {
+    if (!box || ratio === null || box.w <= 0 || box.h <= 0) return null
+    const byHeight = box.h / ratio
+    const w = Math.min(box.w, byHeight)
+    return Math.max(120, Math.floor(w / 8) * 8)
+  })()
+
+  // 2. Build the page-turn book (curl animation, drag/swipe, corners).
+  useEffect(() => {
+    const area = areaRef.current
+    if (!area || total === 0 || ratio === null || pageW === null) return
+    let disposed = false
+    let book: PageFlip | null = null
+
+    // page-flip removes its root element on destroy(), so every book gets a fresh node.
+    const host = document.createElement('div')
+    host.className = 'book-host'
+    // Narrow host = one-page layout. Centered horizontally inside the area.
+    host.style.width = `${pageW}px`
+    host.style.left = '50%'
+    host.style.right = 'auto'
+    host.style.transform = 'translateX(-50%)'
+    // Resting view: a plain image of the current page (sharp on iOS). The 3D page-turn layers
+    // below it are shown only while a page is actually turning, then this image comes back.
+    const still = document.createElement('img')
+    still.className = 'book-still'
+    still.alt = ''
+    still.draggable = false
+    still.style.width = `${pageW}px`
+    still.style.height = `${Math.round(pageW * ratio)}px`
+    host.appendChild(still)
+    const showStill = (i: number) => {
+      still.src = urls[i] ?? ''
+      still.style.display = 'block'
+    }
+    const hideStill = () => {
+      still.style.display = 'none'
+    }
+    // Phones: going back slides the previous page in from the left (no curl, see slidePrev).
+    const slideIn = document.createElement('img')
+    slideIn.className = 'book-still'
+    slideIn.alt = ''
+    slideIn.draggable = false
+    slideIn.style.width = `${pageW}px`
+    slideIn.style.height = `${Math.round(pageW * ratio)}px`
+    slideIn.style.zIndex = '3'
+    host.appendChild(slideIn)
+    area.appendChild(host)
+
+    soundRef.current = readSoundPref()
+    setSoundOn(soundRef.current)
+
+    import('page-flip').then(({ PageFlip }) => {
+      if (disposed) return
+      book = new PageFlip(host, {
+        width: pageW,
+        height: Math.round(pageW * ratio),
+        size: 'fixed',
+        showCover: true, // first page is a cover shown alone, like a printed book
+        usePortrait: true, // single-page layout; the host width above keeps it from spreading
+        startPage: pageIdxRef.current,
+        drawShadow: true,
+        maxShadowOpacity: 0.5,
+        flippingTime: 700,
+        mobileScrollSupport: false, // touch drags turn pages instead of scrolling the page
+        swipeDistance: 30,
+        showPageCorners: true,
+        disableFlipByClick: false,
+        clickEventForward: true,
+        useMouseEvents: true,
+      })
+
+      // The library enters the "flipping" state when a turn animation starts
+      // (a finished drag or a button press), so the sound plays only for real turns.
+      const slidePrev = () => {
+        const b = book
+        if (!b) return
+        const cur = b.getCurrentPageIndex()
+        if (cur <= 0 || slideIn.getAnimations().length > 0) return
+        const prev = cur - 1
+        slideIn.src = urls[prev] ?? ''
+        slideIn.style.display = 'block'
+        hideStill()
+        if (soundRef.current) playPageTurn()
+        // The previous page opens out from the left (spine) edge, like a page folding back.
+        slideIn.style.transformOrigin = 'left center'
+        const anim = slideIn.animate(
+          [
+            { transform: 'translate(-50%, -50%) perspective(1400px) rotateY(-80deg)', opacity: 0.4 },
+            { transform: 'translate(-50%, -50%) perspective(1400px) rotateY(0deg)', opacity: 1 },
+          ],
+          { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
+        )
+        anim.onfinish = () => {
+          if (disposed) return
+          // Jump the book to the page now shown, without a second curl or sound.
+          skipFlipSound.current = true
+          b.turnToPage(prev)
+          skipFlipSound.current = false
+          slideIn.style.display = 'none'
+          pageIdxRef.current = prev
+          setPageIdx(prev)
+          showStill(prev)
+        }
+      }
+      slidePrevRef.current = slidePrev
+
+      book.on('changeState', (e) => {
+        if (e.data === 'flipping' && soundRef.current && !skipFlipSound.current) playPageTurn()
+        // Back to rest: show the crisp still of the current page; while dragging/turning, hide it.
+        if (e.data === 'read') showStill(book?.getCurrentPageIndex() ?? 0)
+        else hideStill()
+      })
+      book.on('flip', (e) => {
+        const i = Number(e.data)
+        pageIdxRef.current = i
+        setPageIdx(i)
+      })
+      book.on('init', () => {
+        if (disposed) return
+        setReady(true)
+        showStill(book?.getCurrentPageIndex() ?? pageIdxRef.current)
+      })
+      book.loadFromImages(urls)
+      bookRef.current = book
+    })
+
+    return () => {
+      disposed = true
+      book?.destroy()
+      host.remove()
+      bookRef.current = null
+      setReady(false)
+    }
+    // urls is derived from pages (stable for a given flipbook)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratio, total, flipbook.id, pageW])
+
+  // 3. A view is counted server-side when the visit's first page row is recorded (record_view).
+
+  // 4. Page analytics: each page change logs the time spent on the page just left.
   const logView = useCallback(
     (pageNo: number, dwellMs: number) => {
-      if (!flipbook.id) return
       createClient()
-        .from('flipbook_views')
-        .insert({
-          flipbook_id: flipbook.id,
-          page_no: pageNo,
-          dwell_ms: Math.max(0, Math.min(dwellMs, 3_600_000)),
-          user_agent: navigator.userAgent.slice(0, 255),
+        .rpc('record_view', {
+          p_flipbook: flipbook.id,
+          p_session: visitId(),
+          p_page: pageNo,
+          p_dwell: Math.max(0, Math.min(dwellMs, 3_600_000)),
+          p_ua: navigator.userAgent.slice(0, 255),
         })
-        .then(() => {})
+        .then(() => undefined)
     },
     [flipbook.id]
   )
@@ -136,7 +296,6 @@ export default function Viewer({ flipbook, pages }: Props) {
     track.current = { page: pageIdx, since: now }
   }, [pageIdx, logView])
 
-  // Flush the last page's dwell time when the viewer is hidden or closed.
   useEffect(() => {
     const flush = () => {
       const now = Date.now()
@@ -155,172 +314,115 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
   }, [logView])
 
-  // Preload neighbouring images so swipes feel instant on mobile networks.
+  // 5. Keyboard arrows (desktop / tablet with keyboard).
   useEffect(() => {
-    const neighbours = [spreads[spreadIdx + 1], spreads[spreadIdx - 1]].filter(Boolean) as number[][]
-    neighbours.flat().forEach((i) => {
-      const src = pages[i]?.image_url
-      if (src) {
-        const img = new Image()
-        img.decoding = 'async'
-        img.src = src
-      }
-    })
-  }, [spreads, spreadIdx, pages])
-
-  // ---------- Gestures: swipe, pinch-zoom, pan, double-tap ----------
-  const clampPan = (p: Pt, z: number): Pt => {
-    const rect = stageRef.current?.getBoundingClientRect()
-    if (!rect) return p
-    const maxX = ((z - 1) * rect.width) / 2
-    const maxY = ((z - 1) * rect.height) / 2
-    return { x: clamp(p.x, -maxX, maxX), y: clamp(p.y, -maxY, maxY) }
-  }
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    stageRef.current?.setPointerCapture?.(e.pointerId)
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
-    const g = gesture.current
-    if (pointers.current.size === 1) {
-      g.startPt = { x: e.clientX, y: e.clientY }
-      g.startPan = pan
-      g.startZoom = zoom
-      g.pinched = false
-      g.moved = false
-      g.startedAt = Date.now()
-    } else if (pointers.current.size === 2) {
-      const [a, b] = Array.from(pointers.current.values())
-      g.startDist = dist(a, b)
-      g.startZoom = zoom
-      g.pinched = true
-      setDragX(0)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') bookRef.current?.flipNext()
+      if (e.key === 'ArrowLeft') bookRef.current?.flipPrev()
     }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Forward swipe on phones: page-flip treats most single-page touches as "back" in portrait
+  // mode, so a leftward swipe is detected here and turns the page forward when the library did not.
+  const swipeStart = useRef<{ x: number; y: number; idx: number } | null>(null)
+  const onAreaDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    unlockAudio()
+    swipeStart.current = { x: e.clientX, y: e.clientY, idx: pageIdxRef.current }
   }
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!pointers.current.has(e.pointerId)) return
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
-    const g = gesture.current
-
-    if (pointers.current.size >= 2) {
-      const [a, b] = Array.from(pointers.current.values())
-      const nz = clamp((g.startZoom * dist(a, b)) / (g.startDist || 1), MIN_ZOOM, MAX_ZOOM)
-      setZoom(nz)
-      setPan((p) => clampPan(p, nz))
+  const onAreaUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = swipeStart.current
+    swipeStart.current = null
+    const book = bookRef.current
+    if (!s || !book || zoomIdx !== null) return
+    const dx = e.clientX - s.x
+    const dy = e.clientY - s.y
+    if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+      setUiHidden((v) => !v)
       return
     }
-
-    const dx = e.clientX - g.startPt.x
-    const dy = e.clientY - g.startPt.y
-    if (Math.hypot(dx, dy) > TAP_SLOP_PX) g.moved = true
-
-    if (zoom > 1) {
-      // Zoomed in: one finger pans the page.
-      setPan(clampPan({ x: g.startPan.x + dx, y: g.startPan.y + dy }, zoom))
-    } else if (Math.abs(dx) > Math.abs(dy)) {
-      // Phone swipe preview: the page follows the finger.
-      setDragX(dx)
+    // Left or right swipe, same rule both ways: a fairly quick, mostly horizontal move.
+    if (Math.abs(dx) > 40 && Math.abs(dy) < 80 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      const forward = dx < 0
+      // Wait one tick: page-flip handles the same pointerup on window after this React handler.
+      window.setTimeout(() => {
+        if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
+        if (forward) book.flipNext()
+        else if (isTouchUI()) slidePrevRef.current?.()
+        else book.flipPrev()
+      }, 0)
     }
   }
 
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!pointers.current.has(e.pointerId)) return
-    pointers.current.delete(e.pointerId)
-    const g = gesture.current
-    if (pointers.current.size > 0) return // still one finger down after a pinch
-
-    if (g.pinched) {
-      // Snap back to 100% if the pinch ended close to the original size.
-      if (zoom < 1.05) {
-        setZoom(MIN_ZOOM)
-        setPan({ x: 0, y: 0 })
-      }
-      g.pinched = false
-      return
-    }
-
-    const dx = e.clientX - g.startPt.x
-    const dy = e.clientY - g.startPt.y
-    setDragX(0)
-
-    if (zoom <= 1 && Math.abs(dx) > SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy) * 1.2) {
-      if (dx < 0) next()
-      else prev()
-      return
-    }
-
-    // Tap: double-tap toggles zoom.
-    if (!g.moved && Date.now() - g.startedAt < 300) {
-      const now = Date.now()
-      const last = lastTap.current
-      if (last && now - last.t < DOUBLE_TAP_MS && dist(last.p, { x: e.clientX, y: e.clientY }) < 30) {
-        lastTap.current = null
-        if (zoom > 1) {
-          setZoom(MIN_ZOOM)
-          setPan({ x: 0, y: 0 })
-        } else {
-          setZoom(DOUBLE_TAP_ZOOM)
-          setPan({ x: 0, y: 0 })
-        }
-      } else {
-        lastTap.current = { t: now, p: { x: e.clientX, y: e.clientY } }
-      }
+  const toggleSound = () => {
+    const next = !soundRef.current
+    soundRef.current = next
+    setSoundOn(next)
+    saveSoundPref(next)
+    if (next) {
+      unlockAudio()
+      playPageTurn()
     }
   }
 
-  const flipClass = flip.dir === 'next' ? 'flip-next' : flip.dir === 'prev' ? 'flip-prev' : ''
-  const pageLabel = currentSpread.length > 1
-    ? `${currentSpread[0] + 1}–${currentSpread[1] + 1}`
-    : `${(currentSpread[0] ?? 0) + 1}`
-
+  const goTo = (i: number) => bookRef.current?.turnToPage(i)
   const hasPages = total > 0
+  const canPrev = pageIdx > 0
+  const canNext = pageIdx < total - 1
 
   return (
-    <div className="viewer">
+    <div className={`viewer${uiHidden ? ' ui-hidden' : ''}`}>
       <header className="viewer-top">
         <div style={{ minWidth: 0 }}>
           <div className="viewer-title truncate" title={flipbook.title}>{flipbook.title}</div>
           <div className="viewer-meta">조회 {views.toLocaleString()}회</div>
         </div>
-        {flipbook.pdf_url && (
-          <a className="btn btn-dark" href={flipbook.pdf_url} target="_blank" rel="noopener" style={{ minHeight: 48, padding: '0 14px', fontSize: 14 }}>
-            PDF
-          </a>
-        )}
+        <div className="viewer-top-actions">
+          {signedIn && (
+            <a className="btn btn-dark viewer-pill" href="/dashboard/folders">
+              ← 목록
+            </a>
+          )}
+          {hasPages && (
+            <button
+              type="button"
+              className="btn btn-dark viewer-pill"
+              onClick={toggleSound}
+              aria-pressed={soundOn}
+              aria-label={soundOn ? '넘김 소리 끄기' : '넘김 소리 켜기'}
+            >
+              {soundOn ? '🔊' : '🔇'}
+            </button>
+          )}
+          {flipbook.pdf_url && (
+            <a
+              className="btn btn-dark viewer-pill"
+              href={`/b/${flipbook.slug}/original`}
+              title="원본 PDF는 글자가 가장 선명해요"
+            >
+              원본 파일
+            </a>
+          )}
+        </div>
       </header>
+      {noticeOpen && (
+        <div className="view-notice" role="note">
+          <span>쪽 넘김 기록(쪽 번호, 머문 시간, 기기 종류)이 발행자 통계에 쓰여요. 기록은 1년 뒤 자동 삭제돼요.</span>
+          <button type="button" onClick={dismissNotice} className="btn btn-ghost view-notice-btn">확인</button>
+        </div>
+      )}
 
-      {hasPages ? (
+      {hasPages && ratio !== null ? (
         <>
           <div
-            ref={stageRef}
-            className="stage"
-            role="region"
-            aria-label={`${flipbook.title} 페이지 보기. 좌우로 밀어서 넘기고, 두 손가락으로 확대할 수 있어요.`}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
+            ref={areaRef}
+            className="book-area"
+            onPointerDown={onAreaDown}
+            onPointerUp={onAreaUp}
+            onPointerCancel={() => { swipeStart.current = null }}
           >
-            <div
-              key={flip.key}
-              className={`spread${currentSpread.length > 1 ? ' is-two' : ''} ${flipClass}`}
-              style={{
-                transform: `translate3d(${pan.x + dragX}px, ${pan.y}px, 0) scale(${zoom})`,
-                transition: dragX === 0 && zoom === MIN_ZOOM ? 'transform 0.25s ease' : 'none',
-              }}
-            >
-              {currentSpread.map((i) => (
-                <img
-                  key={pages[i].page_no}
-                  className="page-img"
-                  src={pages[i].image_url}
-                  alt={`${pages[i].page_no}페이지`}
-                  loading="eager"
-                  decoding="async"
-                  draggable={false}
-                />
-              ))}
-            </div>
+            {!ready && <div className="book-loading" role="status">책을 준비하는 중...</div>}
           </div>
 
           {wide && (
@@ -329,10 +431,10 @@ export default function Viewer({ flipbook, pages }: Props) {
                 <button
                   key={p.page_no}
                   type="button"
-                  className={`thumb${currentSpread.includes(i) ? ' is-current' : ''}`}
-                  onClick={() => goToSpread(spreads.findIndex((s) => s.includes(i)))}
+                  className={`thumb${i === pageIdx ? ' is-current' : ''}`}
+                  onClick={() => goTo(i)}
                   aria-label={`${p.page_no}페이지로 이동`}
-                  aria-current={currentSpread.includes(i) ? 'page' : undefined}
+                  aria-current={i === pageIdx ? 'page' : undefined}
                 >
                   <img src={p.image_url} alt="" loading="lazy" decoding="async" />
                 </button>
@@ -341,25 +443,64 @@ export default function Viewer({ flipbook, pages }: Props) {
           )}
 
           <div className="viewer-controls">
-            <button type="button" className="nav-btn" onClick={prev} disabled={!canPrev} aria-label="이전 페이지">
+            <button
+              type="button"
+              className="nav-btn"
+              onClick={() => (isTouchUI() ? slidePrevRef.current?.() : bookRef.current?.flipPrev())}
+              disabled={!canPrev || !ready}
+              aria-label="이전 페이지"
+            >
               ‹
             </button>
             <div className="page-count" aria-live="polite">
-              {pageLabel} / {total}쪽
-              {!wide && <span className="zoom-hint">두 손가락으로 확대 · 두 번 탭</span>}
+              {pageIdx + 1} / {total}쪽
+              <button type="button" className="zoom-open" onClick={() => setZoomIdx(pageIdx)}>
+                🔍 확대
+              </button>
             </div>
-            <button type="button" className="nav-btn" onClick={next} disabled={!canNext} aria-label="다음 페이지">
+            <button
+              type="button"
+              className="nav-btn"
+              onClick={() => bookRef.current?.flipNext()}
+              disabled={!canNext || !ready}
+              aria-label="다음 페이지"
+            >
               ›
             </button>
           </div>
         </>
+      ) : hasPages ? (
+        <div className="viewer-empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <div className="book-loading" role="status">책을 준비하는 중...</div>
+        </div>
       ) : (
         <div className="viewer-empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <div>이 카탈로그는 모바일 뷰어 이미지가 아직 없어요.</div>
           {flipbook.pdf_url && (
-            <a className="btn btn-kakao" href={flipbook.pdf_url} target="_blank" rel="noopener">PDF 열기</a>
+            <a className="btn btn-kakao" href={`/b/${flipbook.slug}/original`}>PDF 열기</a>
           )}
         </div>
+      )}
+
+      {zoomIdx !== null && (
+        <ZoomView
+          urls={urls}
+          index={zoomIdx}
+          onTurn={(delta) => {
+            // Close the zoom view, then let the book curl to the next/previous page with its sound.
+            const book = bookRef.current
+            setZoomIdx(null)
+            if (!book) return
+            if (delta > 0) book.flipNext()
+            else book.flipPrev()
+          }}
+          onClose={() => {
+            // Closing the zoom view moves the book to the page the reader ended on.
+            const target = zoomIdx
+            setZoomIdx(null)
+            if (target !== null && target !== pageIdxRef.current) bookRef.current?.turnToPage(target)
+          }}
+        />
       )}
     </div>
   )

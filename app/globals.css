@@ -492,6 +492,8 @@ button {
   min-width: 0;
 }
 .fb-actions .btn { flex: 1 1 0; min-width: 0; }
+.fb-actions-row { display: flex; gap: 8px; }
+.fb-actions-row .btn { flex: 1 1 0; min-width: 0; }
 
 .empty {
   text-align: center;
@@ -756,4 +758,780 @@ button {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- Page-turn book (page-flip) ---------- */
+.viewer-top-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.viewer-pill { min-height: var(--touch); min-width: var(--touch); padding: 0 14px; font-size: 14px; }
+
+.book-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+/* The library sizes itself from its parent, so the host needs a definite box. */
+.book-host {
+  position: absolute;
+  inset: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.book-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.zoom-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  margin-left: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  vertical-align: middle;
+}
+.zoom-open:active { transform: scale(0.98); background: rgba(255, 255, 255, 0.26); }
+
+.zoom-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.96);
+  display: flex;
+  flex-direction: column;
+}
+.zoom-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: var(--gutter);
+  z-index: 2;
+  min-height: var(--touch);
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.zoom-close:active { transform: scale(0.98); }
+.zoom-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+.zoom-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.zoom-hint {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  padding: 10px var(--gutter);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+/* page-flip paints a white wrapper; keep the book area transparent over the dark viewer. */
+.book-host,
+.book-host * {
+  background-color: transparent;
+}
+
+/* Page navigation inside the zoom view */
+.zoom-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+.zoom-nav:active { background: #fee500; }
+.zoom-nav:disabled { opacity: 0.3; cursor: default; }
+.zoom-nav-prev { left: 8px; }
+.zoom-nav-next { right: 8px; }
+.zoom-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+  white-space: nowrap;
+}
+.zoom-count {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+}
+.zoom-big {
+  min-height: 48px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: #fee500;
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.zoom-big:active { filter: brightness(0.92); }
+.zoom-big[aria-pressed='true'] { background: #fff; }
+
+.zoom-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Resting page image shown over the book (see viewer.tsx). Passes touches through to the book. */
+.book-still {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  object-fit: fill;
+  background: #fff;
+  pointer-events: none;
+  z-index: 2;
+  display: none;
+}
+
+/* Phones: page-flip must not take touches itself (it cancels backward swipes on iOS).
+   Swipes are handled by the viewer, which calls flipNext/flipPrev so both directions curl the same way.
+   Mouse and trackpad on desktop keep the library's own drag. */
+@media (pointer: coarse) {
+  .book-host .stf__parent,
+  .book-host .stf__block,
+  .book-host .stf__item {
+    pointer-events: none !important;
+  }
+}
+
+/* Let the viewer receive horizontal swipes: the browser must not claim them for panning
+   (the page never scrolls sideways, so this changes nothing else). */
+.book-area {
+  touch-action: pan-y;
+}
+
+/* ---- Dashboard shell: header + fixed bottom tab bar ---- */
+.dash-shell {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  background: #fff;
+  border-top: 1px solid #e5e5e5;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbar-inner {
+  max-width: 560px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+.tabbar a {
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 12px;
+  color: #777;
+  text-decoration: none;
+}
+.tabbar a .tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.tabbar a[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* ---- App feel: no pull-to-refresh bounce, no text selection on controls, entrance motion ---- */
+html {
+  overscroll-behavior-y: none;
+}
+.dash-shell .btn,
+.tabbar a,
+.sheet-action {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+@keyframes app-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.dash-shell main {
+  animation: app-in 0.28s ease-out;
+}
+
+/* ---- Bottom sheet (share menu) ---- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.4);
+  animation: app-fade 0.2s ease-out;
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.15);
+  animation: sheet-up 0.26s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.sheet-grip {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto 10px;
+  border-radius: 3px;
+  background: #ddd;
+}
+.sheet-title {
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 0 12px;
+  overflow-wrap: anywhere;
+}
+.sheet-action {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+.sheet-action:active {
+  background: #f3f3f3;
+}
+.sheet-action .sheet-icon {
+  width: 28px;
+  margin-right: 12px;
+  text-align: center;
+  font-size: 20px;
+}
+.sheet-cancel {
+  margin-top: 8px;
+  justify-content: center;
+  color: var(--muted);
+}
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes app-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Install banner (home-screen app) ---- */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.install-banner .install-text {
+  flex: 1;
+  min-width: 0;
+}
+.install-banner .btn {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.install-banner .install-close {
+  min-height: 40px;
+  min-width: 40px;
+  border: 0;
+  background: none;
+  color: #bbb;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-shell main,
+  .sheet,
+  .sheet-backdrop {
+    animation: none;
+  }
+}
+
+/* =====================================================================
+   Native-app layer (applies on top of the rules above)
+   ===================================================================== */
+
+/* Status bar: black-translucent means content runs under the status bar.
+   A fixed black strip behind it keeps the icons readable on every page. */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: #000;
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Touch: no 300ms delay, no double-tap zoom on controls, momentum scrolling */
+button,
+a,
+input,
+select,
+textarea,
+label,
+.btn {
+  touch-action: manipulation;
+}
+html,
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Buttons: at least 48px tall, 12px corners, scale-down press feedback */
+.btn {
+  min-height: var(--touch);
+  border-radius: 12px;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+
+/* App header (dark, 56px + status bar) */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) var(--gutter) 0;
+  background: #000;
+  color: #fff;
+}
+.app-header .brand-name {
+  color: #fff;
+}
+.app-header-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: #fff;
+  background: #222;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+/* Bottom tab bar: five slots, centre "+" is the upload button */
+.tabbar {
+  height: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #fff;
+  border-top: 1px solid #e6e6e6;
+}
+.tabbar.is-hidden {
+  display: none;
+}
+.tabbar-inner {
+  height: 64px;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+}
+.tabbar a {
+  min-height: 56px;
+  font-size: 11px;
+}
+.tabbar .tab-icon {
+  font-size: 20px;
+}
+.tabbar-inner .tab-plus-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+}
+.tab-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #111;
+  color: var(--yellow);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+.tab-plus-link:active .tab-plus {
+  transform: scale(0.94);
+}
+
+/* Skeleton loading with shimmer (replaces spinners on lists) */
+.skeleton {
+  background: linear-gradient(90deg, #eeeeee 25%, #f7f7f7 37%, #eeeeee 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 8px;
+}
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+.skel-thumb {
+  width: 72px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 10px;
+}
+.skel-line {
+  height: 14px;
+  margin-bottom: 10px;
+}
+.skel-line.short {
+  width: 55%;
+}
+.fb-list[aria-label='불러오는 중'] .fb-item {
+  pointer-events: none;
+}
+
+/* Pull-to-refresh indicator */
+.ptr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: height 0.15s ease;
+}
+
+/* Page transition: slide in from the right, like a native push */
+@keyframes app-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Viewer: vertical swipe hides the chrome */
+.viewer .viewer-top,
+.viewer .viewer-controls {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.viewer.ui-hidden .viewer-top {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+.viewer.ui-hidden .viewer-controls {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .tab-plus,
+  .btn {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Action rows: buttons keep their label on one line, inputs take the remaining width */
+.fb-actions-row .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fb-actions-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.chip {
+  white-space: nowrap;
+}
+
+/* Settings menu */
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.menu-item:active {
+  background: #f3f3f3;
+}
+
+/* Home intro: explains the app to first-time users */
+.intro-card {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  padding: 22px 20px 20px;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(120% 90% at 100% 0%, #2a1b44 0%, #120d1c 55%, #0e0a14 100%);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+.intro-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(254, 229, 0, 0.14);
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.intro-title {
+  margin: 12px 0 8px;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: #fff;
+}
+.intro-title em {
+  font-style: normal;
+  color: var(--yellow);
+}
+.intro-sub {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+.intro-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+}
+.intro-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f2f2f2;
+}
+.intro-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #111;
+  font-size: 14px;
+  font-weight: 900;
+}
+.intro-cta {
+  width: 100%;
+  background: var(--yellow);
+  color: #111;
+  font-weight: 800;
+}
+.intro-compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.intro-compact-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--yellow);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+/* My Book: pull-to-refresh overlay does not push the list; filter chips scroll sideways;
+   card action buttons wrap two per row so the 삭제 button stays on screen. */
+.ptr-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + 56px);
+  z-index: 30;
+  background: var(--bg, #f3f3ee);
+  pointer-events: none;
+}
+.filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.filter-row .btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 40px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.fb-card-actions {
+  flex-wrap: wrap;
+}
+.fb-card-actions .btn {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 0;
+}
+
+/* Card actions: stack "보기" above a two-per-row button grid, so nothing runs off the card. */
+.fb-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.fb-actions > .btn {
+  flex: none;
+  width: 100%;
+}
+.fb-card-actions {
+  width: 100%;
+  min-width: 0;
+}
+.filter-row .btn,
+.filter-row .btn.btn-ghost {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0;
+}
+
+/* Viewer: one-time notice about view logs */
+.view-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #1a1a1a;
+  color: #ddd;
+}
+.view-notice span { flex: 1; min-width: 0; }
+.view-notice-btn { min-height: 36px; padding: 0 12px; flex-shrink: 0; }
+
+/* Referral: copy / SMS / email / share buttons in a two-per-row grid */
+.referral-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.referral-share .btn {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 0;
+  white-space: nowrap;
 }

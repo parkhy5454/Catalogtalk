@@ -21,6 +21,12 @@ export const metadata: Metadata = {
   },
   // Keep crawlers and in-app browsers from caching an out-of-date viewer page.
   robots: { index: true, follow: true },
+  // iOS home-screen app: opens full screen and uses the app title and icon.
+  appleWebApp: { capable: true, title: SITE_NAME, statusBarStyle: 'black-translucent' },
+  icons: {
+    icon: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
 }
 
 // Mobile viewport. `interactive-widget=resizes-content` makes the layout viewport

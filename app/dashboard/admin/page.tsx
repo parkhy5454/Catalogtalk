@@ -5,8 +5,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
-// Only the operator may view this page. Keep in sync with the plan (기획서 4.6).
-const ADMIN_EMAILS = ['parkhy5454@gmail.com']
+// Only operators (customers.is_admin = true, set in the database) may view this page.
 
 type AuthUser = {
   id: string
@@ -16,14 +15,30 @@ type AuthUser = {
   email_confirmed_at?: string | null
 }
 
+type CustomerRow = {
+  user_id: string
+  name: string | null
+  phone: string | null
+  company_name: string | null
+  plan: string | null
+  bonus_flipbooks: number | null
+  referred_by: string | null
+  is_admin: boolean | null
+}
+
 export default async function AdminPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!ADMIN_EMAILS.includes(user.email || '')) redirect('/dashboard')
+  // Server-side gate: regular users are redirected, whatever the UI shows.
+  // The operator flag lives in customers.is_admin; the row is readable by its owner under RLS.
+  const { data: me } = await supabase.from('customers').select('is_admin').eq('user_id', user.id).maybeSingle()
+  if (me?.is_admin !== true) redirect('/dashboard')
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  let users: AuthUser[] = []
+  const users: AuthUser[] = []
+  const customers = new Map<string, CustomerRow>()
+  const flipbookCounts = new Map<string, number>()
   let error: string | null = null
 
   if (!serviceKey) {
@@ -42,19 +57,30 @@ export default async function AdminPage() {
       users.push(...(data.users as AuthUser[]))
       if (data.users.length < 200) break
     }
+
+    const { data: rows, error: custErr } = await admin
+      .from('customers')
+      .select('user_id, name, phone, company_name, plan, bonus_flipbooks, referred_by, is_admin')
+    if (custErr) error = error ?? custErr.message
+    for (const r of (rows as CustomerRow[]) ?? []) customers.set(r.user_id, r)
+
+    const { data: fbRows } = await admin.from('flipbooks').select('user_id')
+    for (const r of (fbRows as { user_id: string }[]) ?? []) {
+      flipbookCounts.set(r.user_id, (flipbookCounts.get(r.user_id) ?? 0) + 1)
+    }
   }
 
   const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString('ko-KR') : '-')
+  const dash = (s?: string | null) => (s && s.trim() ? s : '-')
 
   return (
-    <div className="page">
-      <main className="container section">
+    <main className="container section">
         <div className="panel-head" style={{ marginBottom: 16 }}>
           <div>
             <h1 className="panel-title" style={{ fontSize: 22 }}>관리자 대시보드</h1>
             <p className="muted" style={{ fontSize: 14 }}>총 {users.length.toLocaleString()}명의 가입자</p>
           </div>
-          <Link href="/dashboard" className="btn btn-primary">← 대시보드</Link>
+          <Link href="/dashboard/profile" className="btn btn-primary">← 내 정보</Link>
         </div>
 
         {error && <div className="notice notice-error" role="alert" style={{ marginBottom: 16 }}>에러: {error}</div>}
@@ -64,31 +90,43 @@ export default async function AdminPage() {
             <thead>
               <tr>
                 <th scope="col">이메일</th>
+                <th scope="col">이름</th>
+                <th scope="col">휴대폰</th>
+                <th scope="col">회사</th>
+                <th scope="col">요금제</th>
+                <th scope="col">플립북</th>
+                <th scope="col">추천 보너스</th>
                 <th scope="col">가입일</th>
                 <th scope="col">최근 로그인</th>
                 <th scope="col">인증</th>
-                <th scope="col">ID</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td style={{ fontWeight: 600 }}>
-                    {u.email}
-                    {ADMIN_EMAILS.includes(u.email || '') && <span className="badge-admin">ADMIN</span>}
-                  </td>
-                  <td className="muted">{fmt(u.created_at)}</td>
-                  <td className="muted">{fmt(u.last_sign_in_at)}</td>
-                  <td>
-                    {u.email_confirmed_at ? <span className="tag tag-ok">인증됨</span> : <span className="tag tag-no">미인증</span>}
-                  </td>
-                  <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>{u.id.slice(0, 8)}…</td>
-                </tr>
-              ))}
+              {users.map((u) => {
+                const c = customers.get(u.id)
+                return (
+                  <tr key={u.id}>
+                    <td style={{ fontWeight: 600 }}>
+                      {u.email}
+                      {customers.get(u.id)?.is_admin === true && <span className="badge-admin">ADMIN</span>}
+                    </td>
+                    <td>{dash(c?.name)}</td>
+                    <td>{dash(c?.phone)}</td>
+                    <td>{dash(c?.company_name)}</td>
+                    <td>{c?.plan ?? 'free'}</td>
+                    <td>{flipbookCounts.get(u.id) ?? 0}개</td>
+                    <td>{c?.bonus_flipbooks ?? 0}개{c?.referred_by ? ' (추천 가입)' : ''}</td>
+                    <td className="muted">{fmt(u.created_at)}</td>
+                    <td className="muted">{fmt(u.last_sign_in_at)}</td>
+                    <td>
+                      {u.email_confirmed_at ? <span className="tag tag-ok">인증됨</span> : <span className="tag tag-no">미인증</span>}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
-      </main>
-    </div>
+    </main>
   )
 }

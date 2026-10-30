@@ -3,14 +3,16 @@
 import * as pdfjsLib from 'pdfjs-dist/build/pdf'
 
 const PDFJS_VERSION = '3.11.174'
-const TARGET_WIDTH = 1200 // px; crisp on 3x phones, small enough to stay light
-const WEBP_QUALITY = 0.82
+const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
+// Match the source: scanned/catalog PDFs often embed page images at ~1200px wide.
+// Rendering far larger only upscales them, which looks blurry on phones.
+const TARGET_WIDTH = 1600 // px
+const WEBP_QUALITY = 0.95 // high quality: avoids a second round of visible compression
 
 let workerReady = false
 function ensureWorker() {
   if (workerReady) return
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`
   workerReady = true
 }
 
@@ -23,7 +25,7 @@ export type RenderResult = {
   thumbJpg: Blob
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'webp' | 'jpg' }> {
+export function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'webp' | 'jpg' }> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (webp) => {
@@ -32,7 +34,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'we
         canvas.toBlob(
           (jpg) => (jpg ? resolve({ blob: jpg, ext: 'jpg' }) : reject(new Error('이미지 변환에 실패했어요'))),
           'image/jpeg',
-          0.85
+          0.95
         )
       },
       'image/webp',
@@ -41,7 +43,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<{ blob: Blob; ext: 'we
   })
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
+export function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error('썸네일 생성에 실패했어요'))),
@@ -61,7 +63,15 @@ export async function renderPdfPages(
   onPage?: (done: number, total: number) => void
 ): Promise<RenderResult> {
   ensureWorker()
-  const pdf = await pdfjsLib.getDocument({ data: source }).promise
+  // CMaps map Korean/CJK character codes to glyphs; without them text renders as garbage.
+  const pdf = await pdfjsLib.getDocument({
+    data: source,
+    cMapUrl: `${PDFJS_BASE}/cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
+    // Non-embedded Korean fonts (e.g. Malgun Gothic) are only drawn if the device has them.
+    useSystemFonts: true,
+  }).promise
   const pages: RenderedPage[] = []
   let thumbJpg: Blob | null = null
 

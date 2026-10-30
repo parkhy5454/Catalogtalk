@@ -4,7 +4,20 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { RenderResult } from '@/lib/flipbook/convert'
 
 export const BUCKET = 'flipbook-files'
-export const MAX_PDF_BYTES = 50 * 1024 * 1024
+export const MAX_PDF_BYTES = 50 * 1024 * 1024 // applies to every supported source file
+
+export type SourceKind = 'pdf' | 'docx'
+const SOURCE_MIME: Record<SourceKind, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+/** Which converter a file needs, or null if it is not supported (HWP must be saved as PDF first). */
+export function sourceKindOf(name: string): SourceKind | null {
+  if (/\.pdf$/i.test(name)) return 'pdf'
+  if (/\.docx$/i.test(name)) return 'docx'
+  return null
+}
 const UPLOAD_CONCURRENCY = 4
 const ASSET_CACHE = '31536000' // 1 year: asset paths are unique per slug + page
 
@@ -17,6 +30,8 @@ export type FlipbookRow = {
   page_count: number
   views: number
   created_at: string
+  is_public: boolean
+  folder_id: string | null
 }
 
 export function makeSlug(): string {
@@ -94,23 +109,28 @@ async function insertPages(supabase: SupabaseClient, flipbookId: string, pages: 
 /** Convert a brand-new PDF into a flipbook (pages + thumbnail + DB rows). */
 export async function createFlipbook(
   supabase: SupabaseClient,
-  opts: { userId: string; title: string; file: File },
+  opts: { userId: string; title: string; file: File; folderId?: string | null },
   render: Render,
   onStatus: (text: string, progress: number) => void
 ): Promise<FlipbookRow> {
+  const kind = sourceKindOf(opts.file.name)
+  if (!kind) throw new Error('PDF 또는 Word(.docx) 파일만 올릴 수 있어요')
   const slug = makeSlug()
   const buf = await opts.file.arrayBuffer()
 
-  onStatus('PDF 페이지를 이미지로 변환하는 중...', 0)
+  onStatus('페이지를 이미지로 변환하는 중...', 0)
   const { numPages, pages, thumbJpg } = await render(buf.slice(0), (d, t) => onStatus(`페이지 변환 중 ${d} / ${t}`, d / t * 0.4))
 
-  onStatus('원본 PDF 저장 중...', 0.42)
-  const { error: pdfErr } = await supabase.storage.from(BUCKET).upload(`${slug}/original.pdf`, opts.file, {
-    contentType: 'application/pdf',
+  onStatus('원본 파일 저장 중...', 0.42)
+  // The original is public like the page images, but its file name carries an unguessable token,
+  // so the address cannot be guessed from the catalog link.
+  const originalPath = `${slug}/original-${crypto.randomUUID().replace(/-/g, '')}.${kind}`
+  const { error: srcErr } = await supabase.storage.from(BUCKET).upload(originalPath, opts.file, {
+    contentType: SOURCE_MIME[kind],
     cacheControl: ASSET_CACHE,
-    upsert: true,
+    upsert: false,
   })
-  if (pdfErr) throw new Error(`PDF 업로드 실패: ${pdfErr.message}`)
+  if (srcErr) throw new Error(`원본 파일 업로드 실패: ${srcErr.message}`)
 
   onStatus('페이지 이미지 업로드 중...', 0.45)
   const uploaded = await uploadPages(supabase, slug, pages, (d, t) =>
@@ -118,7 +138,7 @@ export async function createFlipbook(
   )
 
   onStatus('저장 중...', 0.95)
-  const pdfUrl = publicUrl(supabase, `${slug}/original.pdf`)
+  const pdfUrl = publicUrl(supabase, originalPath)
   const thumbUrl = await uploadThumb(supabase, slug, thumbJpg)
 
   const { data: fb, error } = await supabase
@@ -130,8 +150,9 @@ export async function createFlipbook(
       pdf_url: pdfUrl,
       thumb_url: thumbUrl,
       page_count: numPages,
+      folder_id: opts.folderId ?? null,
     })
-    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at')
+    .select('id, title, slug, pdf_url, thumb_url, page_count, views, created_at, folder_id, is_public')
     .single()
   if (error) throw error
 
@@ -161,10 +182,13 @@ export async function convertExisting(
   const buf = await res.arrayBuffer()
 
   const { numPages, pages, thumbJpg } = await render(buf, (d, t) => onStatus(`페이지 변환 중 ${d} / ${t}`, d / t * 0.5))
-  const uploaded = await uploadPages(supabase, fb.slug, pages, (d, t) =>
+  // Storage folder = row id (ASCII UUID). Legacy slugs can contain Korean, and Supabase
+  // Storage rejects such object keys with 400. The public slug (URL) stays unchanged.
+  const folder = fb.id
+  const uploaded = await uploadPages(supabase, folder, pages, (d, t) =>
     onStatus(`이미지 업로드 중 ${d} / ${t}`, 0.5 + (d / t) * 0.45)
   )
-  const thumbUrl = await uploadThumb(supabase, fb.slug, thumbJpg)
+  const thumbUrl = await uploadThumb(supabase, folder, thumbJpg)
 
   await insertPages(supabase, fb.id, uploaded)
   const { error } = await supabase
@@ -173,4 +197,46 @@ export async function convertExisting(
     .eq('id', fb.id)
   if (error) throw error
   onStatus('완료!', 1)
+}
+
+/** Storage path (inside the bucket) for a public URL created by publicUrl(). */
+function pathFromPublicUrl(url: string | null): string | null {
+  if (!url) return null
+  const marker = `/${BUCKET}/`
+  const i = url.indexOf(marker)
+  if (i < 0) return null
+  try {
+    return decodeURIComponent(url.slice(i + marker.length).split('?')[0])
+  } catch {
+    return null
+  }
+}
+
+/** List every file under a folder in the bucket (best effort). */
+async function listFolder(supabase: SupabaseClient, folder: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(BUCKET).list(folder, { limit: 1000 })
+  if (error || !data) return []
+  return data.filter((f) => f.name && f.id !== null).map((f) => `${folder}/${f.name}`)
+}
+
+/**
+ * Delete a flipbook: its database row (pages and view logs cascade) and its files in storage.
+ * The DB delete is authoritative; storage cleanup is best effort so a leftover file
+ * never blocks removing the catalog from the list.
+ */
+export async function deleteFlipbook(supabase: SupabaseClient, fb: FlipbookRow): Promise<void> {
+  const { error } = await supabase.from('flipbooks').delete().eq('id', fb.id)
+  if (error) throw error
+
+  const paths: string[] = []
+  for (const folder of [fb.slug, fb.id]) {
+    paths.push(...(await listFolder(supabase, folder)))
+  }
+  const original = pathFromPublicUrl(fb.pdf_url)
+  if (original) paths.push(original) // legacy PDFs sit at the bucket root
+  const unique = paths.filter((p, i) => paths.indexOf(p) === i)
+  if (unique.length > 0) {
+    await supabase.storage.from(BUCKET).remove(unique).catch(() => undefined)
+  }
+
 }
