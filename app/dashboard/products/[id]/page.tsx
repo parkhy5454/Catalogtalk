@@ -6,7 +6,10 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Product = { id: string; name: string; price: number | null; unit: string | null; options: string | null; page_no: number | null }
+type Product = {
+  id: string; name: string; price: number | null; unit: string | null; options: string | null; page_no: number | null
+  description: string | null; image_url: string | null; bbox: number[] | null
+}
 const REMINDER_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: '끄기' },
   { value: '30', label: '30일 뒤' },
@@ -38,7 +41,7 @@ export default function ProductsPage() {
   const load = useCallback(async () => {
     const [book, rows] = await Promise.all([
       supabase.from('flipbooks').select('title, page_count, order_form, reorder_days, order_requires_subscription').eq('id', id).maybeSingle(),
-      supabase.from('catalog_products').select('id, name, price, unit, options, page_no').eq('flipbook_id', id).order('page_no', { ascending: true }).order('created_at', { ascending: true }),
+      supabase.from('catalog_products').select('id, name, price, unit, options, page_no, description, image_url, bbox').eq('flipbook_id', id).order('page_no', { ascending: true }).order('created_at', { ascending: true }),
     ])
     if (!book.data) return setNotFound(true)
     setTitle(book.data.title)
@@ -52,6 +55,54 @@ export default function ProductsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const cutPhoto = async (p: Product) => {
+    if (!p.bbox || !p.page_no) return
+    setNotice(null)
+    try {
+      const res = await fetch(`/api/products/page-image?flipbook_id=${id}&page_no=${p.page_no}`)
+      const info = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
+      if (!res.ok || !info.url) throw new Error(info.error ?? '쪽 이미지를 읽지 못했어요')
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image()
+        el.crossOrigin = 'anonymous'
+        el.onload = () => resolve(el)
+        el.onerror = () => reject(new Error('쪽 이미지를 읽지 못했어요'))
+        el.src = info.url as string
+      })
+      const [x, y, w, h] = p.bbox
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(w * img.width))
+      canvas.height = Math.max(1, Math.round(h * img.height))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('사진을 자르지 못했어요')
+      ctx.drawImage(img, x * img.width, y * img.height, w * img.width, h * img.height, 0, 0, canvas.width, canvas.height)
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+      if (!blob) throw new Error('사진을 자르지 못했어요')
+      const supabase = createClient()
+      const path = `${id}/products/${p.id}.jpg`
+      const up = await supabase.storage.from('flipbook-files').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+      if (up.error) throw new Error('사진을 저장하지 못했어요')
+      const publicUrl = supabase.storage.from('flipbook-files').getPublicUrl(path).data.publicUrl
+      const { error: err } = await supabase.from('catalog_products').update({ image_url: `${publicUrl}?v=${Date.now()}` }).eq('id', p.id)
+      if (err) throw new Error('사진 주소를 저장하지 못했어요')
+      setNotice({ kind: 'success', text: `${p.name} 사진을 잘랐어요` })
+      await load()
+    } catch (e) {
+      setNotice({ kind: 'error', text: e instanceof Error ? e.message : '사진을 자르지 못했어요' })
+    }
+  }
+
+  const writeDescription = async (p: Product) => {
+    setNotice(null)
+    const res = await fetch('/api/products/describe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: p.id }),
+    })
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    if (!res.ok) return setNotice({ kind: 'error', text: body.error ?? '설명을 쓰지 못했어요' })
+    setNotice({ kind: 'success', text: `${p.name} 설명을 썼어요. 내용을 확인해 주세요.` })
+    await load()
+  }
 
   const saveSettings = async (patch: { order_form?: boolean; reorder_days?: number | null; order_requires_subscription?: boolean }) => {
     const { error } = await supabase.from('flipbooks').update(patch).eq('id', id)
@@ -180,13 +231,21 @@ export default function ProductsPage() {
           <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 6, fontSize: 13 }}>
             {products.map((p) => (
               <li key={p.id} className="info-box" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <div style={{ minWidth: 0 }}>
-                  <strong className="truncate" style={{ display: 'block' }}>{p.name}</strong>
-                  <span style={{ color: 'var(--muted)' }}>
-                    {won(p.price)}{p.unit ? ` / ${p.unit}` : ''}{p.options ? ` · ${p.options}` : ''}{p.page_no ? ` · ${p.page_no}쪽` : ''}
-                  </span>
+                <div style={{ display: 'flex', gap: 8, minWidth: 0, alignItems: 'center' }}>
+                  {p.image_url && <img src={p.image_url} alt="" width={44} height={44} style={{ borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />}
+                  <div style={{ minWidth: 0 }}>
+                    <strong className="truncate" style={{ display: 'block' }}>{p.name}</strong>
+                    <span style={{ color: 'var(--muted)' }}>
+                      {won(p.price)}{p.unit ? ` / ${p.unit}` : ''}{p.options ? ` · ${p.options}` : ''}{p.page_no ? ` · ${p.page_no}쪽` : ''}
+                    </span>
+                    {p.description && <span style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>{p.description}</span>}
+                  </div>
                 </div>
-                <button type="button" className="btn btn-ghost" onClick={() => remove(p)}>삭제</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                  {p.bbox && !p.image_url && <button type="button" className="btn btn-ghost" onClick={() => cutPhoto(p)}>사진 자르기</button>}
+                  {!p.description && <button type="button" className="btn btn-ghost" onClick={() => writeDescription(p)}>설명 쓰기</button>}
+                  <button type="button" className="btn btn-ghost" onClick={() => remove(p)}>삭제</button>
+                </div>
               </li>
             ))}
           </ul>

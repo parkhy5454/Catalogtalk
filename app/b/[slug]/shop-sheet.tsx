@@ -13,6 +13,7 @@ export type ShopProduct = {
   options: string | null
   description: string | null
   page_no: number | null
+  image_url?: string | null
 }
 
 type Props = {
@@ -110,7 +111,9 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
                   const q = cart[p.id] ?? 0
                   return (
                     <li key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderBottom: '1px solid #eee', paddingBottom: 8 }}>
-                      <div style={{ minWidth: 0, fontSize: 14 }}>
+                      <div style={{ display: 'flex', gap: 10, minWidth: 0, alignItems: 'center', fontSize: 14 }}>
+                        {p.image_url && <img src={p.image_url} alt="" width={56} height={56} loading="lazy" style={{ borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                        <div style={{ minWidth: 0, fontSize: 14 }}>
                         <strong style={{ display: 'block' }}>{p.name}</strong>
                         <span style={{ color: '#777', fontSize: 12 }}>
                           {p.price !== null ? `${p.price.toLocaleString('ko-KR')}원` : '가격 문의'}{p.unit ? ` / ${p.unit}` : ''}
@@ -121,6 +124,7 @@ export default function ShopSheet({ flipbookId, session, products, orderOn, onCl
                             {optionsOf(p).map((o) => <option key={o} value={o}>{o}</option>)}
                           </select>
                         )}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <button type="button" onClick={() => setQty(p.id, q - 1)} disabled={q === 0} style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #ddd', background: '#fff' }}>−</button>

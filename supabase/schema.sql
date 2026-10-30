@@ -3514,3 +3514,29 @@ revoke all on function get_qr_stats(uuid) from public, anon;
 grant execute on function get_qr_stats(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 45. Product photos and descriptions
+--   bbox: where the product photo sits on its catalog page, as [x, y, width, height] (0..1).
+--   image_url: the cropped photo, stored in the catalog's public folder.
+-- ============================================================
+alter table catalog_products add column if not exists image_url text;
+alter table catalog_products add column if not exists bbox jsonb;
+alter table catalog_products drop constraint if exists catalog_products_bbox_chk;
+alter table catalog_products add constraint catalog_products_bbox_chk
+  check (bbox is null or (jsonb_typeof(bbox) = 'array' and jsonb_array_length(bbox) = 4));
+
+drop function if exists get_products(text);
+create or replace function get_products(p_slug text)
+returns table (id uuid, name text, price bigint, unit text, options text, description text, page_no int, image_url text)
+language sql stable security definer set search_path = public
+as $$
+  select p.id, p.name, p.price, p.unit, p.options, p.description, p.page_no, p.image_url
+  from catalog_products p
+  join flipbooks f on f.id = p.flipbook_id
+  where f.slug = p_slug and f.is_public and (f.expires_at is null or f.expires_at > now())
+  order by p.page_no nulls last, p.created_at;
+$$;
+grant execute on function get_products(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
