@@ -782,3 +782,56 @@ as $$
   order by t.last_message_at desc
 $$;
 notify pgrst, 'reload schema';
+
+-- 17. Pinned conversations (v17) ------------------------------------------
+-- Each member pins their own conversations. Other members never see it.
+create table if not exists chat_pins (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  thread_id uuid not null references chat_threads(id) on delete cascade,
+  pinned_at timestamptz not null default now(),
+  primary key (user_id, thread_id)
+);
+alter table chat_pins enable row level security;
+
+drop policy if exists chat_pins_own on chat_pins;
+create policy chat_pins_own on chat_pins for all to authenticated
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from chat_threads t
+      where t.id = thread_id and (t.user_a = auth.uid() or t.user_b = auth.uid())
+    )
+  );
+
+drop function if exists list_chat_threads();
+create function list_chat_threads()
+returns table (
+  thread_id uuid, partner_id uuid, partner_company text,
+  last_message_at timestamptz, last_body text, unread int, pinned boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select
+    t.id,
+    case when t.user_a = auth.uid() then t.user_b else t.user_a end,
+    (select coalesce(c.company_name, c.name) from customers c
+      where c.user_id = case when t.user_a = auth.uid() then t.user_b else t.user_a end),
+    t.last_message_at,
+    (select case when m.body <> '' then m.body else '[카탈로그] ' || coalesce(m.catalog_title, '') end
+       from chat_messages m where m.thread_id = t.id order by m.created_at desc limit 1),
+    (select count(*)::int from chat_messages m
+       where m.thread_id = t.id and m.sender_id <> auth.uid()
+         and m.created_at > coalesce(
+           (select r.last_read_at from chat_reads r where r.thread_id = t.id and r.user_id = auth.uid()),
+           'epoch'::timestamptz)),
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid())
+  from chat_threads t
+  where (t.user_a = auth.uid() or t.user_b = auth.uid())
+    and not is_blocked_between(t.user_a, t.user_b)
+  order by
+    exists (select 1 from chat_pins p where p.thread_id = t.id and p.user_id = auth.uid()) desc,
+    t.last_message_at desc
+$$;
+grant execute on function list_chat_threads() to authenticated;
+notify pgrst, 'reload schema';

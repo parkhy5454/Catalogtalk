@@ -27,6 +27,7 @@ export default function ChatThreadPage() {
   const supabase = createClient()
   const [me, setMe] = useState<string | null>(null)
   const [partner, setPartner] = useState<{ id: string; company: string | null } | null>(null)
+  const [pinned, setPinned] = useState(false)
   const [messages, setMessages] = useState<Msg[]>([])
   const [loaded, setLoaded] = useState(false)
   const [text, setText] = useState('')
@@ -56,6 +57,7 @@ export default function ChatThreadPage() {
         return
       }
       setPartner({ id: thread.partner_id, company: thread.partner_company })
+      setPinned((thread as { pinned?: boolean }).pinned === true)
 
       const { data: rows, error: msgErr } = await supabase
         .from('chat_messages')
@@ -150,6 +152,18 @@ export default function ChatThreadPage() {
     if (!repErr) window.alert('신고가 접수됐어요. 운영팀이 확인할게요.')
   }
 
+  const togglePin = async () => {
+    if (!me) return
+    if (pinned) {
+      const { error: pinErr } = await supabase.from('chat_pins').delete().eq('user_id', me).eq('thread_id', id)
+      if (pinErr) return setError('고정을 해제하지 못했어요')
+    } else {
+      const { error: pinErr } = await supabase.from('chat_pins').insert({ user_id: me, thread_id: id })
+      if (pinErr) return setError('고정하지 못했어요')
+    }
+    setPinned(!pinned)
+  }
+
   const block = async () => {
     if (!me || !partner) return
     const ok = window.confirm('이 회사를 차단할까요?\n차단하면 이 대화방이 목록에서 사라지고 서로 메시지를 보낼 수 없어요.')
@@ -184,6 +198,9 @@ export default function ChatThreadPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Link href="/dashboard/chat" className="btn btn-ghost">← 목록</Link>
         <strong className="truncate" style={{ flex: 1 }}>{partner.company || '사업자 회원'}</strong>
+        <button type="button" className="btn btn-ghost" onClick={togglePin} aria-pressed={pinned}>
+          {pinned ? '고정 해제' : '고정'}
+        </button>
         <button type="button" className="btn btn-ghost" onClick={block}>차단</button>
       </div>
 
