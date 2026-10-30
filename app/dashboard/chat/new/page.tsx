@@ -23,7 +23,13 @@ export default function NewChatPage() {
     setError(null)
     const { data, error: findErr } = await supabase.rpc('find_chat_partner', { p_code: clean })
     const found = Array.isArray(data) ? data[0] : null
-    if (findErr || !found) {
+    if (findErr) {
+      // Shows the database message (for example, "function does not exist" when schema v16 is not applied).
+      setError(`코드 확인 실패: ${findErr.message}`)
+      setBusy(false)
+      return
+    }
+    if (!found) {
       setError('이 코드의 회원을 찾지 못했어요')
       setBusy(false)
       return
