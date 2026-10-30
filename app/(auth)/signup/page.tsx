@@ -38,6 +38,16 @@ export default function SignupPage() {
     setInfo('')
     // The customers row is created by a database trigger (see schema.sql), which also
     // reads these metadata keys and applies the referral bonus. No client-side insert.
+    // Record the sign-up address hash first, so the referral check can see it later.
+    try {
+      await fetch('/api/signup-track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+    } catch {
+      // Tracking is best effort; sign-up must still work.
+    }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
