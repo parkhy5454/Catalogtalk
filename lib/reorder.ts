@@ -80,7 +80,7 @@ export async function sendReorderReminders(): Promise<{ sent: number; failed: nu
         html:
           `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#111">` +
           `<p>지난번 주문하셨던 상품을 다시 찾으실 때가 되었어요.</p>` +
-          `<p><a href="${SITE_URL}/b/${b.slug}">${esc(b.title)} 다시 보기</a></p>` +
+          `<p><a href="${SITE_URL}/api/mail/click?t=${token}&k=reorder">${esc(b.title)} 다시 보기</a></p>` +
           `<hr style="border:none;border-top:1px solid #eee;margin:24px 0">` +
           `<p style="font-size:12px;color:#777">이 메일은 주문하신 분 중 소식 수신에 동의하신 분께 보내드려요. ` +
           `더 받고 싶지 않으시면 <a href="${SITE_URL}/api/unsubscribe?t=${token}">수신거부</a>를 눌러 주세요. (${SITE_NAME})</p></div>`,

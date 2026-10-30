@@ -3900,3 +3900,71 @@ revoke all on function submit_order(uuid, text, text, text, text, jsonb, boolean
 grant execute on function submit_order(uuid, text, text, text, text, jsonb, boolean, text, date, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 48. Automated reminders and campaign results
+--   Automated mails go only to customers who agreed to marketing, once per period.
+--   Clicks are recorded through the mail's own link (no open tracking).
+--   Conversion = an order or quote from the same contact within 14 days of the mail.
+-- ============================================================
+alter table flipbooks add column if not exists remind_unviewed_days int;
+alter table flipbooks drop constraint if exists flipbooks_remind_unviewed_chk;
+alter table flipbooks add constraint flipbooks_remind_unviewed_chk
+  check (remind_unviewed_days is null or remind_unviewed_days in (7, 14, 30));
+alter table flipbooks add column if not exists remind_quote_days int;
+alter table flipbooks drop constraint if exists flipbooks_remind_quote_chk;
+alter table flipbooks add constraint flipbooks_remind_quote_chk
+  check (remind_quote_days is null or remind_quote_days in (1, 3, 7));
+
+alter table lead_sends drop constraint if exists lead_sends_kind_check;
+alter table lead_sends add constraint lead_sends_kind_check
+  check (kind in ('notice', 'reorder', 'unviewed', 'quote_reminder'));
+
+create table if not exists email_clicks (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  lead_id uuid not null references flipbook_leads(id) on delete cascade,
+  kind text not null,
+  clicked_at timestamptz not null default now()
+);
+create index if not exists email_clicks_fb_idx on email_clicks (flipbook_id, kind);
+alter table email_clicks enable row level security;
+drop policy if exists email_clicks_owner_select on email_clicks;
+create policy email_clicks_owner_select on email_clicks for select to authenticated
+  using (can_manage_flipbook(flipbook_id));
+-- Inserts come from the click route (service role) only.
+
+create or replace function get_campaign_stats(p_flipbook uuid)
+returns table (kind text, sent bigint, clicked bigint, converted bigint, last_sent timestamptz)
+language sql stable security definer set search_path = public
+as $$
+  with s as (
+    select ls.lead_id, ls.kind, ls.sent_at, l.contact
+    from lead_sends ls join flipbook_leads l on l.id = ls.lead_id
+    where ls.flipbook_id = p_flipbook and can_manage_flipbook(p_flipbook)
+  ),
+  conv as (
+    select distinct s.lead_id, s.kind
+    from s
+    where exists (select 1 from orders o
+                  where o.flipbook_id = p_flipbook
+                    and lower(btrim(o.buyer_contact)) = lower(btrim(s.contact))
+                    and o.created_at between s.sent_at and s.sent_at + interval '14 days')
+       or exists (select 1 from quote_requests q
+                  where q.flipbook_id = p_flipbook
+                    and lower(btrim(q.contact)) = lower(btrim(s.contact))
+                    and q.created_at between s.sent_at and s.sent_at + interval '14 days')
+  )
+  select s.kind,
+    count(distinct s.lead_id)::bigint,
+    (select count(distinct ec.lead_id) from email_clicks ec
+      where ec.flipbook_id = p_flipbook and ec.kind = s.kind)::bigint,
+    (select count(distinct cv.lead_id) from conv cv where cv.kind = s.kind)::bigint,
+    max(s.sent_at)
+  from s
+  group by s.kind;
+$$;
+revoke all on function get_campaign_stats(uuid) from public, anon;
+grant execute on function get_campaign_stats(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

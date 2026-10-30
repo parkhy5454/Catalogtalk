@@ -4,6 +4,7 @@ import 'server-only'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { sendReorderReminders } from '@/lib/reorder'
+import { sendAutomatedReminders } from '@/lib/reminders'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
 
   // Reorder reminders run in the same daily job (the hobby plan allows only two cron jobs).
   const reorder = await sendReorderReminders().catch(() => ({ sent: 0, failed: 0 }))
+  const reminders = await sendAutomatedReminders().catch(() => ({ sent: 0, failed: 0 }))
 
-  return NextResponse.json({ ok: true, views: views.data ?? 0, leads: leads.data ?? 0, webhooks: hooks.data ?? 0, reorder })
+  return NextResponse.json({ ok: true, views: views.data ?? 0, leads: leads.data ?? 0, webhooks: hooks.data ?? 0, reorder, reminders })
 }
