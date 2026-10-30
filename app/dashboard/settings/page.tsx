@@ -4,16 +4,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-// Same operator as app/dashboard/admin (server-side gate there). Used only to show the menu item.
-const ADMIN_EMAILS = ['parkhy5454@gmail.com']
-
-
 // Settings tab: account and operator entries, plus sign-out.
 export default function SettingsPage() {
   const router = useRouter()
   const supabase = createClient()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     ;(async () => {
@@ -22,15 +19,14 @@ export default function SettingsPage() {
       setEmail(user.email ?? '')
       const { data } = await supabase
         .from('customers')
-        .select('name')
+        .select('name, is_admin')
         .eq('user_id', user.id)
         .maybeSingle()
       setName(data?.name ?? '')
+      setIsAdmin(data?.is_admin === true)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const isAdmin = ADMIN_EMAILS.includes(email)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

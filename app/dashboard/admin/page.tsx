@@ -5,8 +5,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
-// Only the operator may view this page. Keep in sync with the plan (기획서 4.6).
-const ADMIN_EMAILS = ['parkhy5454@gmail.com']
+// Only operators (customers.is_admin = true, set in the database) may view this page.
 
 type AuthUser = {
   id: string
@@ -24,6 +23,7 @@ type CustomerRow = {
   plan: string | null
   bonus_flipbooks: number | null
   referred_by: string | null
+  is_admin: boolean | null
 }
 
 export default async function AdminPage() {
@@ -31,7 +31,9 @@ export default async function AdminPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   // Server-side gate: regular users are redirected, whatever the UI shows.
-  if (!ADMIN_EMAILS.includes(user.email || '')) redirect('/dashboard')
+  // The operator flag lives in customers.is_admin; the row is readable by its owner under RLS.
+  const { data: me } = await supabase.from('customers').select('is_admin').eq('user_id', user.id).maybeSingle()
+  if (me?.is_admin !== true) redirect('/dashboard')
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const users: AuthUser[] = []
@@ -58,7 +60,7 @@ export default async function AdminPage() {
 
     const { data: rows, error: custErr } = await admin
       .from('customers')
-      .select('user_id, name, phone, company_name, plan, bonus_flipbooks, referred_by')
+      .select('user_id, name, phone, company_name, plan, bonus_flipbooks, referred_by, is_admin')
     if (custErr) error = error ?? custErr.message
     for (const r of (rows as CustomerRow[]) ?? []) customers.set(r.user_id, r)
 
@@ -106,7 +108,7 @@ export default async function AdminPage() {
                   <tr key={u.id}>
                     <td style={{ fontWeight: 600 }}>
                       {u.email}
-                      {ADMIN_EMAILS.includes(u.email || '') && <span className="badge-admin">ADMIN</span>}
+                      {customers.get(u.id)?.is_admin === true && <span className="badge-admin">ADMIN</span>}
                     </td>
                     <td>{dash(c?.name)}</td>
                     <td>{dash(c?.phone)}</td>

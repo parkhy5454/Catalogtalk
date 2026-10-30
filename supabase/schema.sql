@@ -335,3 +335,11 @@ as $$
 $$;
 grant execute on function get_flipbook(text) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- 7. Operator flag (v7) ------------------------------------------------
+-- Operators are marked in the database instead of by email in the code.
+-- Users cannot change this column: their updates are limited to name/phone/company_name.
+alter table customers add column if not exists is_admin boolean not null default false;
+update customers set is_admin = true
+  where user_id = (select id from auth.users where email = 'parkhy5454@gmail.com');
+notify pgrst, 'reload schema';
