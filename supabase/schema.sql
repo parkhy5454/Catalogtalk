@@ -3421,3 +3421,96 @@ revoke all on function get_buyer_intent(uuid) from public, anon;
 grant execute on function get_buyer_intent(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 44. QR codes: per-product or per-page tracking, visits and inquiries per code
+--   A visit that comes through a QR link stores the code in flipbook_views.qr.
+--   Leads, quotes and orders are linked to the code through their session.
+-- ============================================================
+alter table flipbook_views add column if not exists qr text;
+
+create table if not exists qr_codes (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  code text not null unique check (code ~ '^[A-Za-z0-9]{6,12}$'),
+  label text not null check (char_length(label) between 1 and 60),
+  page_no int,
+  product_id uuid references catalog_products(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists qr_codes_flipbook_idx on qr_codes (flipbook_id);
+alter table qr_codes enable row level security;
+drop policy if exists qr_codes_manage on qr_codes;
+create policy qr_codes_manage on qr_codes for all
+  using (can_manage_flipbook(flipbook_id))
+  with check (can_manage_flipbook(flipbook_id) and owner_id = auth.uid());
+
+-- Replace the 6-argument record_view with a 7-argument one (qr is optional).
+drop function if exists record_view(uuid, text, int, int, text, text);
+
+create or replace function record_view(
+  p_flipbook uuid, p_session text, p_page int, p_dwell int, p_ua text,
+  p_src text default null, p_qr text default null
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_pages int;
+  v_is_new boolean;
+begin
+  if p_session is null or char_length(p_session) not between 8 and 64 then return; end if;
+  select page_count into v_pages from flipbooks where id = p_flipbook;
+  if v_pages is null or v_pages < 1 then return; end if;
+  if p_page is null or p_page < 1 or p_page > v_pages then return; end if;
+  if (select count(*) from flipbook_views
+       where session_id = p_session and viewed_at > now() - interval '10 minutes') >= 300 then
+    return;
+  end if;
+  if (select count(*) from flipbook_views
+       where flipbook_id = p_flipbook and viewed_at > now() - interval '1 day') >= 50000 then
+    return;
+  end if;
+  v_is_new := not exists (
+    select 1 from flipbook_views where flipbook_id = p_flipbook and session_id = p_session
+  );
+  insert into flipbook_views (flipbook_id, session_id, page_no, dwell_ms, user_agent, src, qr)
+  values (p_flipbook, p_session, p_page,
+          greatest(0, least(coalesce(p_dwell, 0), 3600000)), left(p_ua, 255),
+          case when p_src ~ '^[a-z]{1,16}$' then p_src else null end,
+          case when p_qr ~ '^[A-Za-z0-9]{6,12}$'
+                and exists (select 1 from qr_codes q where q.code = p_qr and q.flipbook_id = p_flipbook)
+               then p_qr else null end);
+  if v_is_new then
+    update flipbooks set views = views + 1 where id = p_flipbook;
+  end if;
+end $$;
+revoke all on function record_view(uuid, text, int, int, text, text, text) from public;
+grant execute on function record_view(uuid, text, int, int, text, text, text) to anon, authenticated;
+
+create or replace function get_qr_stats(p_flipbook uuid)
+returns table (qr_id uuid, qr_code text, qr_label text, qr_page int, qr_product text,
+               visitors int, leads int, quotes int, orders int)
+language sql stable security definer set search_path = public
+as $$
+  select q.id, q.code, q.label, q.page_no, p.name,
+    (select count(distinct fv.session_id)::int from flipbook_views fv
+      where fv.flipbook_id = p_flipbook and fv.qr = q.code and fv.session_id is not null),
+    (select count(*)::int from flipbook_leads l
+      where l.flipbook_id = p_flipbook and l.session_id in (
+        select fv.session_id from flipbook_views fv where fv.flipbook_id = p_flipbook and fv.qr = q.code)),
+    (select count(*)::int from quote_requests qr
+      where qr.flipbook_id = p_flipbook and qr.session_id in (
+        select fv.session_id from flipbook_views fv where fv.flipbook_id = p_flipbook and fv.qr = q.code)),
+    (select count(*)::int from orders o
+      where o.flipbook_id = p_flipbook and o.session_id in (
+        select fv.session_id from flipbook_views fv where fv.flipbook_id = p_flipbook and fv.qr = q.code))
+  from qr_codes q
+  left join catalog_products p on p.id = q.product_id
+  where q.flipbook_id = p_flipbook and can_manage_flipbook(p_flipbook)
+  order by q.created_at;
+$$;
+revoke all on function get_qr_stats(uuid) from public, anon;
+grant execute on function get_qr_stats(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

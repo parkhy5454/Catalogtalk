@@ -33,6 +33,27 @@ function trafficSource(): string | null {
   }
 }
 
+// QR code the visitor came through (?q=...). Only the short code shape is kept.
+function qrCode(): string | null {
+  try {
+    const q = new URLSearchParams(window.location.search).get('q')
+    return q && /^[A-Za-z0-9]{6,12}$/.test(q) ? q : null
+  } catch {
+    return null
+  }
+}
+
+// Start page from a QR link (?page=N, 1-based), kept inside the catalog's page range.
+function initialPageIdx(pageCount: number): number {
+  try {
+    const n = Number(new URLSearchParams(window.location.search).get('page'))
+    if (!Number.isInteger(n) || n < 1) return 0
+    return Math.min(n - 1, Math.max(0, pageCount - 1))
+  } catch {
+    return 0
+  }
+}
+
 const SOUND_KEY = 'catalogtalk-page-sound'
 const NOTICE_KEY = 'catalogtalk-view-notice-ok'
 const BOOK_WIDTH = 1000 // logical page width; the library scales it to the container
@@ -101,7 +122,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   const [box, setBox] = useState<{ w: number; h: number } | null>(null)
   const [ready, setReady] = useState(false)
   const [pageIdx, setPageIdx] = useState(0)
-  const pageIdxRef = useRef(0) // survives book re-creation (e.g. on rotation)
+  const pageIdxRef = useRef(typeof window === 'undefined' ? 0 : initialPageIdx(flipbook.page_count)) // survives book re-creation (e.g. on rotation)
   const [views, setViews] = useState(flipbook.views || 0)
   // Signed-in visitors (normally the owner) get a way back to My Book.
   const [signedIn, setSignedIn] = useState(false)
@@ -347,6 +368,7 @@ export default function Viewer({ flipbook, pages }: Props) {
           p_dwell: Math.max(0, Math.min(dwellMs, 3_600_000)),
           p_ua: navigator.userAgent.slice(0, 255),
           p_src: trafficSource(),
+          p_qr: qrCode(),
         })
         .then(() => undefined)
     },

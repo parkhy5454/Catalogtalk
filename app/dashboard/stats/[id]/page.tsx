@@ -374,6 +374,7 @@ export default function FlipbookStatsPage() {
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           <Link href={`/dashboard/products/${id}`} className="btn btn-ghost">상품 관리</Link>
           <Link href={`/dashboard/orders/${id}`} className="btn btn-ghost">주문 요청 보기</Link>
+          <Link href={`/dashboard/qr/${id}`} className="btn btn-ghost">QR 코드</Link>
         </div>
       </section>
 
