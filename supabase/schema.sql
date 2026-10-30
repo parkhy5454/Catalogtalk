@@ -466,3 +466,68 @@ as $$
 $$;
 grant execute on function get_flipbook(text) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- 14. Referral abuse guard (v14) ---------------------------------------
+-- The sign-up address is stored only as a hash (see app/api/signup-track). Before the reward is
+-- granted, reward_referral() refuses it when:
+--   * the new member signed up from the same address as the referrer, or
+--   * 2 or more other referred sign-ups from that address happened in the last 30 days.
+-- A refused referral still marks the sign-up as done (no retries), but gives no bonus.
+alter table customers add column if not exists signup_ip_hash text;
+
+create table if not exists signup_visits (
+  email text primary key,
+  ip_hash text not null,
+  created_at timestamptz not null default now()
+);
+alter table signup_visits enable row level security;
+
+create or replace function reward_referral()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_me customers%rowtype;
+  v_ref customers%rowtype;
+  v_ip text;
+  v_recent int;
+  v_allowed boolean := true;
+begin
+  if new.email_confirmed_at is null then return new; end if;
+  select * into v_me from customers where user_id = new.id;
+  if not found or v_me.referral_rewarded or v_me.referred_by is null then return new; end if;
+
+  if v_me.signup_ip_hash is null then
+    select ip_hash into v_ip from signup_visits where email = lower(new.email);
+    if v_ip is not null then
+      update customers set signup_ip_hash = v_ip where id = v_me.id;
+      v_me.signup_ip_hash := v_ip;
+    end if;
+  end if;
+
+  select * into v_ref from customers where id = v_me.referred_by;
+  if not found then return new; end if;
+
+  if v_me.signup_ip_hash is not null then
+    if v_ref.signup_ip_hash = v_me.signup_ip_hash then v_allowed := false; end if;
+    select count(*) into v_recent from customers
+      where signup_ip_hash = v_me.signup_ip_hash
+        and referred_by is not null
+        and referral_rewarded
+        and id <> v_me.id
+        and created_at > now() - interval '30 days';
+    if v_recent >= 2 then v_allowed := false; end if;
+  end if;
+
+  if v_allowed and coalesce(v_ref.referral_rewards, 0) < 10 then
+    update customers
+       set bonus_flipbooks = bonus_flipbooks + 1,
+           referral_rewards = referral_rewards + 1
+     where id = v_ref.id;
+    update customers set bonus_flipbooks = bonus_flipbooks + 1 where id = v_me.id;
+  end if;
+  update customers set referral_rewarded = true where id = v_me.id;
+  return new;
+end;
+$$;
+notify pgrst, 'reload schema';
