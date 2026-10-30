@@ -103,16 +103,23 @@ export default function FlipbookStatsPage() {
   const [notFound, setNotFound] = useState(false)
   const [loading, setLoading] = useState(true)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const [leadOn, setLeadOn] = useState(false)
+  const [leadCount, setLeadCount] = useState(0)
+  const [leadBusy, setLeadBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const [book, views] = await Promise.all([
-      supabase.from('flipbooks').select('title, page_count, views').eq('id', id).maybeSingle(),
+    const [book, views, leads] = await Promise.all([
+      supabase.from('flipbooks').select('title, page_count, views, lead_form').eq('id', id).maybeSingle(),
       supabase
         .from('flipbook_views')
         .select('id, session_id, page_no, dwell_ms, viewed_at, user_agent, src')
         .eq('flipbook_id', id)
         .order('viewed_at', { ascending: false })
         .limit(5000),
+      supabase
+        .from('flipbook_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('flipbook_id', id),
     ])
     setLoading(false)
     if (!book.data) {
@@ -122,6 +129,8 @@ export default function FlipbookStatsPage() {
     setTitle(book.data.title)
     setPageCount(book.data.page_count ?? 0)
     setTotalViews(book.data.views ?? 0)
+    setLeadOn(book.data.lead_form === true)
+    setLeadCount(leads.count ?? 0)
     setRows((views.data as ViewRow[]) ?? [])
     setUpdatedAt(new Date())
   }, [id])
@@ -205,6 +214,15 @@ export default function FlipbookStatsPage() {
     return Array.from(counts, ([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count)
   }, [visits])
 
+  const toggleLead = async () => {
+    if (leadBusy) return
+    const next = !leadOn
+    setLeadBusy(true)
+    const { error } = await supabase.from('flipbooks').update({ lead_form: next }).eq('id', id)
+    setLeadBusy(false)
+    if (!error) setLeadOn(next)
+  }
+
   if (loading) {
     return (
       <main className="container section">
@@ -259,6 +277,21 @@ export default function FlipbookStatsPage() {
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
           총 조회수 {totalViews.toLocaleString()}회 · 끝까지 본 방문 {summary.finished}회
         </p>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }} aria-labelledby="lead-title">
+        <h2 className="panel-title" id="lead-title" style={{ fontSize: 16 }}>리드 수집</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+          켜면 열람 중 이름과 연락처를 받아요. 동의한 사람만 남고, 1년이 지나면 자동 삭제돼요.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className={leadOn ? 'btn btn-primary' : 'btn btn-ghost'} onClick={toggleLead} disabled={leadBusy}>
+            {leadOn ? '수집 켜짐 · 끄기' : '수집 꺼짐 · 켜기'}
+          </button>
+          <Link href={`/dashboard/leads/${id}`} className="btn btn-ghost">
+            받은 리드 {leadCount.toLocaleString()}명 보기
+          </Link>
+        </div>
       </section>
 
       {visits.length === 0 ? (

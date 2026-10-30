@@ -5,6 +5,7 @@ import { playPageTurn, unlockAudio } from '@/lib/flipbook/sound'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
+import LeadSheet, { leadDone } from './lead-sheet'
 
 // One id per page load (one visit). Lets the owner group rows into visits.
 let cachedVisitId: string | null = null
@@ -115,6 +116,14 @@ export default function Viewer({ flipbook, pages }: Props) {
       setNoticeOpen(false)
     }
   }, [])
+  // Lead sheet (publisher turned it on): asked once, after the visitor turns the first page.
+  const [leadOpen, setLeadOpen] = useState(false)
+  const leadAsked = useRef(false)
+  useEffect(() => {
+    if (!flipbook.lead_form || leadAsked.current || pageIdx < 1 || leadDone(flipbook.id)) return
+    leadAsked.current = true
+    setLeadOpen(true)
+  }, [pageIdx, flipbook.lead_form, flipbook.id])
   const dismissNotice = () => {
     try {
       localStorage.setItem(NOTICE_KEY, '1')
@@ -449,6 +458,9 @@ export default function Viewer({ flipbook, pages }: Props) {
           ))}
         </div>
       </header>
+      {leadOpen && (
+        <LeadSheet flipbookId={flipbook.id} session={visitId()} onClose={() => setLeadOpen(false)} />
+      )}
       {noticeOpen && (
         <div className="view-notice" role="note">
           <span>쪽 넘김 기록(쪽 번호, 머문 시간, 기기 종류)이 발행자 통계에 쓰여요. 기록은 1년 뒤 자동 삭제돼요.</span>

@@ -2043,3 +2043,103 @@ revoke all on function record_view(uuid, text, int, int, text, text) from public
 grant execute on function record_view(uuid, text, int, int, text, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- 31. Lead collection (v31) ----------------------------------------------
+
+-- Owner switch: ask visitors for name and contact before/while they read.
+alter table flipbooks add column if not exists lead_form boolean not null default false;
+
+-- Collected leads. Only the catalog owner can read or delete them (RLS below).
+create table if not exists flipbook_leads (
+  id uuid primary key default gen_random_uuid(),
+  flipbook_id uuid not null references flipbooks(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 40),
+  contact text not null check (char_length(contact) between 5 and 120),
+  marketing_consent boolean not null default false,
+  session_id text,
+  created_at timestamptz not null default now()
+);
+create index if not exists flipbook_leads_fb_idx on flipbook_leads (flipbook_id, created_at);
+
+alter table flipbook_leads enable row level security;
+
+drop policy if exists flipbook_leads_owner_select on flipbook_leads;
+create policy flipbook_leads_owner_select on flipbook_leads for select to authenticated
+  using (owner_id = auth.uid());
+
+drop policy if exists flipbook_leads_owner_delete on flipbook_leads;
+create policy flipbook_leads_owner_delete on flipbook_leads for delete to authenticated
+  using (owner_id = auth.uid());
+
+-- Visitors submit through this function only (no direct insert).
+create or replace function submit_lead(
+  p_flipbook uuid, p_name text, p_contact text, p_marketing boolean, p_session text
+) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+begin
+  select f.user_id into v_owner from flipbooks f
+    where f.id = p_flipbook and f.is_public and f.lead_form
+      and (f.expires_at is null or f.expires_at > now());
+  if v_owner is null then raise exception '지금은 연락처를 받지 않는 자료예요'; end if;
+  if char_length(v_name) not between 1 and 40 or char_length(v_contact) not between 5 and 120 then
+    raise exception '이름과 연락처를 확인해 주세요';
+  end if;
+  if p_session is null or char_length(p_session) not between 8 and 64 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  -- one lead per visit: a second submit from the same visit does nothing
+  if exists (select 1 from flipbook_leads where flipbook_id = p_flipbook and session_id = p_session) then
+    return;
+  end if;
+  -- coarse daily ceiling per catalog (stops spam)
+  if (select count(*) from flipbook_leads
+       where flipbook_id = p_flipbook and created_at > now() - interval '1 day') >= 1000 then
+    raise exception '오늘은 더 받을 수 없어요';
+  end if;
+  insert into flipbook_leads (flipbook_id, owner_id, name, contact, marketing_consent, session_id)
+  values (p_flipbook, v_owner, v_name, v_contact, coalesce(p_marketing, false), p_session);
+end $$;
+
+revoke all on function submit_lead(uuid, text, text, boolean, text) from public;
+grant execute on function submit_lead(uuid, text, text, boolean, text) to anon, authenticated;
+
+-- Leads are kept for 1 year, then removed (run daily by /api/cron/retention).
+create or replace function purge_old_leads()
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted int;
+begin
+  delete from flipbook_leads where created_at < now() - interval '365 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end $$;
+
+revoke all on function purge_old_leads() from public, anon, authenticated;
+
+-- get_flipbook now also tells the viewer whether to ask for a contact.
+drop function if exists get_flipbook(text);
+create function get_flipbook(p_slug text)
+returns table (
+  id uuid, title text, slug text, pdf_url text, thumb_url text,
+  page_count int, views int, created_at timestamptz, has_password boolean, lead_form boolean
+)
+language sql stable security definer set search_path = public
+as $$
+  select f.id, f.title, f.slug, f.pdf_url, f.thumb_url, f.page_count, f.views, f.created_at,
+         f.password_hash is not null, f.lead_form
+  from flipbooks f
+  where f.slug = p_slug and f.is_public
+    and (f.expires_at is null or f.expires_at > now())
+  limit 1;
+$$;
+grant execute on function get_flipbook(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
