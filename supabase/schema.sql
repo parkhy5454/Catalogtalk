@@ -1785,3 +1785,12 @@ $$;
 
 grant execute on function list_chat_threads() to authenticated;
 notify pgrst, 'reload schema';
+
+-- 26. Report handling (v26) ------------------------------------------------
+-- Operators review reports on the admin page: resolve, dismiss, or remove the reported message.
+alter table chat_reports add column if not exists status text not null default 'open';
+alter table chat_reports drop constraint if exists chat_reports_status_check;
+alter table chat_reports add constraint chat_reports_status_check check (status in ('open', 'resolved', 'dismissed'));
+alter table chat_reports add column if not exists handled_at timestamptz;
+create index if not exists chat_reports_status_idx on chat_reports (status, created_at desc);
+notify pgrst, 'reload schema';
