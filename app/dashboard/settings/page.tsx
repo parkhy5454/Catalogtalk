@@ -76,6 +76,14 @@ export default function SettingsPage() {
             <span>👤 내 정보</span>
             <span aria-hidden="true">›</span>
           </Link>
+          <Link className="menu-item" href="/dashboard/business">
+            <span>🏢 사업자 인증</span>
+            <span aria-hidden="true">›</span>
+          </Link>
+          <Link className="menu-item" href="/dashboard/chat">
+            <span>💬 사업자 대화</span>
+            <span aria-hidden="true">›</span>
+          </Link>
           <Link className="menu-item" href="/privacy">
             <span>📄 개인정보 처리방침</span>
             <span aria-hidden="true">›</span>
