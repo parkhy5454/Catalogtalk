@@ -154,13 +154,12 @@ as $$
 declare
   v_ref text := nullif(upper(new.raw_user_meta_data ->> 'ref'), '');
   v_referrer uuid;
-  v_new uuid;
 begin
   if v_ref is not null then
     select id into v_referrer from customers where referral_code = v_ref limit 1;
   end if;
-
-  insert into customers (user_id, email, company_name, name, phone, referral_code, referred_by, bonus_flipbooks)
+  -- Rewards are granted later, after email confirmation (see reward_referral).
+  insert into customers (user_id, email, company_name, name, phone, referral_code, referred_by, bonus_flipbooks, referral_rewarded)
   values (
     new.id,
     new.email,
@@ -169,14 +168,10 @@ begin
     new.raw_user_meta_data ->> 'phone',
     upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8)),
     v_referrer,
-    case when v_referrer is not null then 1 else 0 end
+    0,
+    v_referrer is null
   )
-  on conflict (email) do nothing
-  returning id into v_new;
-
-  if v_new is not null and v_referrer is not null then
-    update customers set bonus_flipbooks = bonus_flipbooks + 1 where id = v_referrer;
-  end if;
+  on conflict (email) do nothing;
   return new;
 end;
 $$;
@@ -362,3 +357,44 @@ revoke all on function purge_old_flipbook_views() from public, anon, authenticat
 -- Runs every day at 03:00 (UTC). Requires the pg_cron extension
 -- (Supabase: Database → Extensions → pg_cron → enable), then run this once:
 -- select cron.schedule('purge-flipbook-views', '0 3 * * *', $$select purge_old_flipbook_views()$$);
+
+-- 9. Referral rewards after email confirmation, capped (v9) -----------
+-- A referral pays out only when the new account confirms its email, and each referrer
+-- earns at most 10 rewarded signups. Users cannot change these columns (see the grant).
+alter table customers add column if not exists referral_rewarded boolean not null default false;
+alter table customers add column if not exists referral_rewards int not null default 0;
+
+-- Referrals made before this change were already rewarded: mark them and count per referrer.
+update customers set referral_rewarded = true where referred_by is not null;
+update customers r set referral_rewards = (select count(*) from customers c where c.referred_by = r.id);
+
+create or replace function reward_referral()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_me customers%rowtype;
+  v_rewards int;
+begin
+  if new.email_confirmed_at is null then return new; end if;
+  select * into v_me from customers where user_id = new.id;
+  if not found or v_me.referral_rewarded or v_me.referred_by is null then return new; end if;
+
+  select referral_rewards into v_rewards from customers where id = v_me.referred_by;
+  if coalesce(v_rewards, 0) < 10 then
+    update customers
+       set bonus_flipbooks = bonus_flipbooks + 1,
+           referral_rewards = referral_rewards + 1
+     where id = v_me.referred_by;
+    update customers set bonus_flipbooks = bonus_flipbooks + 1 where id = v_me.id;
+  end if;
+  update customers set referral_rewarded = true where id = v_me.id;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_referral_reward on auth.users;
+create trigger on_auth_user_referral_reward
+  after insert or update of email_confirmed_at on auth.users
+  for each row execute function reward_referral();
+notify pgrst, 'reload schema';
