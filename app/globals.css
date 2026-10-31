@@ -1773,3 +1773,8 @@ body {
 .home-fit .intro-title {
   margin-top: 16px;
 }
+
+/* Home: the card's parts keep their height; only the stretch space is taken by the card */
+.home-fit .intro-card > * {
+  flex-shrink: 0;
+}
