@@ -45,7 +45,7 @@ export default async function Home() {
             ) : (
               <Link href="/signup" className="btn btn-coral">무료로 시작하기 - 0원</Link>
             )}
-            <Link href="/demo" className="btn btn-dark">데모 보기</Link>
+            <Link href="/b/catalog-1793429017815-qshu" className="btn btn-dark">데모 보기</Link>
           </div>
         </section>
 
