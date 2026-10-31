@@ -188,7 +188,7 @@ export default function NewFlipbookPage() {
                 </>
               ) : (
                 <>
-                  <div className="dropzone-text">PDF 또는 Word(.docx)를 여기에 끌어놓거나 아래 버튼을 누르세요</div>
+                  <div className="dropzone-text">PDF 또는 Word(.docx) 업로드</div>
                   <div className="dropzone-sub">최대 50MB · 한글(HWP)은 PDF로 저장해 올려 주세요</div>
                 </>
               )}
