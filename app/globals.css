@@ -1750,3 +1750,11 @@ body {
   border: 0;
   box-shadow: none;
 }
+
+/* Landing (phones): each subtitle line stays on one line */
+@media (max-width: 767px) {
+  .landing .hero-sub {
+    white-space: nowrap;
+    font-size: 13px;
+  }
+}

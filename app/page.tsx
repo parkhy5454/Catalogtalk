@@ -36,8 +36,8 @@ export default async function Home() {
             <em>견적·주문</em>까지
           </h1>
           <p className="hero-sub">
-            고객은 앱 설치 없이 카톡에서 보고 바로 견적을 요청해요.<br />
-            누가 몇 초 봤는지, 어디서 이탈했는지 실시간으로 알 수 있어요.
+            앱 설치 없이 카톡에서 보고 바로 견적 요청<br />
+            누가 몇 초 봤는지, 어디서 이탈했는지 실시간 확인
           </p>
           <div className="hero-actions">
             {user ? (
