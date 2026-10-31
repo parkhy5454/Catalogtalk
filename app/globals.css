@@ -1714,3 +1714,9 @@ body {
   background: #33487a;
   color: #ffe500;
 }
+
+/* Home: the yellow card has no border and no hard shadow */
+.home-fit .intro-card {
+  border: 0;
+  box-shadow: none;
+}
