@@ -1673,12 +1673,13 @@ body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  justify-content: center;
 }
 .home-fit .intro-steps {
   gap: 10px;
 }
 .home-fit .intro-cta {
-  margin-top: auto;
+  margin-top: 14px;
 }
 
 /* Home: the badge keeps its own width inside the stretched card */
