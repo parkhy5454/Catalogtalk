@@ -415,6 +415,18 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
   }, [logView])
 
+  // Browsers allow page-turn sound only after a user gesture. Any tap or key press on the
+  // viewer (buttons and arrow keys included, not only the book area) unlocks it.
+  useEffect(() => {
+    const unlock = () => unlockAudio()
+    window.addEventListener('pointerdown', unlock, { passive: true })
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
+
   // 5. Keyboard arrows (desktop / tablet with keyboard).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
