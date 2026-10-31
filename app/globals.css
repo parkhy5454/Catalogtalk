@@ -1720,3 +1720,26 @@ body {
   border: 0;
   box-shadow: none;
 }
+
+/* Landing feature cards: the icon sits beside the bold title, the description goes below */
+.landing .feature-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+}
+.landing .feature-card .icon {
+  grid-row: 1;
+  grid-column: 1;
+  margin: 0;
+}
+.landing .feature-card h3 {
+  grid-row: 1;
+  grid-column: 2;
+  margin: 0;
+}
+.landing .feature-card p {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+}
