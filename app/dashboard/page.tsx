@@ -45,7 +45,7 @@ export default function DashboardPage() {
         <ol className="intro-steps">
           <li><span className="intro-num">1</span><span>PDF 올리면 플립북 링크 바로 생성</span></li>
           <li><span className="intro-num">2</span><span>PDF를 올리면 상품 자동 인식</span></li>
-          <li><span className="intro-num">3</span><span>카톡·문자·QR로 공유</span></li>
+          <li><span className="intro-num">3</span><span>플립북 카톡·문자·QR로 공유</span></li>
           <li><span className="intro-num">4</span><span>고객이 견적·주문 요청</span></li>
           <li><span className="intro-num">5</span><span>영업 분석·재방문 알림</span></li>
         </ol>
