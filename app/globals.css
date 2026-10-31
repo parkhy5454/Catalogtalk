@@ -1764,7 +1764,7 @@ body {
   font-size: 20px;
 }
 
-/* Home: a little space above the five steps */
+/* Home: space above the five steps */
 .home-fit .intro-steps {
-  margin-top: 16px;
+  margin-top: 24px;
 }
