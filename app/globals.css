@@ -1670,10 +1670,9 @@ body {
 /* Home: the intro card takes the leftover height, so the button sits at the bottom and the
    content fills the space between the header and the tab bar */
 .home-fit .intro-card {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
 }
 .home-fit .intro-steps {
   gap: 10px;
