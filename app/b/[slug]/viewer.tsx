@@ -121,8 +121,6 @@ export default function Viewer({ flipbook, pages }: Props) {
   const online = useOnline()
   const areaRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<PageFlip | null>(null)
-  // Wide screens show one page at a time as a still image (no curl); this shows a given page.
-  const simpleShowRef = useRef<((i: number, dir: number) => void) | null>(null)
   const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
   const skipFlipSound = useRef(false) // a slide-in already played its sound
   const soundRef = useRef(true)
@@ -232,12 +230,11 @@ export default function Viewer({ flipbook, pages }: Props) {
   }, [ratio, total])
 
   // Page width in CSS px, rounded so tiny resizes do not rebuild the book.
-  // Always one page at a time (phones and tablets alike); the book is kept narrower than
-  // two pages so page-flip never switches to a two-page spread.
+  // Phones: one page at a time. Wide screens: a two-page spread, like an open printed book.
   const pageW = (() => {
     if (!box || ratio === null || box.w <= 0 || box.h <= 0) return null
     const byHeight = box.h / ratio
-    const w = Math.min(box.w, byHeight)
+    const w = Math.min(wide ? box.w / 2 : box.w, byHeight)
     return Math.max(120, Math.floor(w / 8) * 8)
   })()
 
@@ -252,7 +249,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     const host = document.createElement('div')
     host.className = 'book-host'
     // Narrow host = one-page layout. Centered horizontally inside the area.
-    host.style.width = `${pageW}px`
+    host.style.width = `${wide ? pageW * 2 : pageW}px`
     host.style.left = '50%'
     host.style.right = 'auto'
     host.style.transform = 'translateX(-50%)'
@@ -266,6 +263,11 @@ export default function Viewer({ flipbook, pages }: Props) {
     still.style.height = `${Math.round(pageW * ratio)}px`
     host.appendChild(still)
     const showStill = (i: number) => {
+      // A spread is drawn by the book itself, so the single-page still is not used there.
+      if (wide) {
+        still.style.display = 'none'
+        return
+      }
       still.src = urls[i] ?? ''
       still.style.display = 'block'
     }
@@ -283,69 +285,6 @@ export default function Viewer({ flipbook, pages }: Props) {
     host.appendChild(slideIn)
     area.appendChild(host)
 
-    if (wide) {
-      // Wide screens: one page at a time, turned with a page-fold animation between two stills,
-      // so neighbouring pages never show beside the current one.
-      const origin = 'left center'
-      const base = 'translate(-50%, -50%)'
-      let turnAnim: Animation | null = null
-      still.style.transformOrigin = origin
-      slideIn.style.transformOrigin = origin
-      slideIn.style.display = 'none'
-      const finish = (i: number) => {
-        turnAnim = null
-        still.style.zIndex = ''
-        slideIn.style.display = 'none'
-        showStill(i)
-      }
-      const turnTo = (i: number, dir: number) => {
-        if (turnAnim) turnAnim.finish() // a quick second press completes the running turn first
-        if (dir === 0 || !urls[i]) {
-          showStill(i)
-          return
-        }
-        const cur = pageIdxRef.current
-        if (cur === i) return
-        if (soundRef.current) playPageTurn()
-        slideIn.src = urls[i] ?? ''
-        slideIn.style.display = 'block'
-        if (dir > 0) {
-          // Forward: the new page lies underneath; the current page folds away to the left.
-          slideIn.style.zIndex = '1'
-          still.style.zIndex = '3'
-          turnAnim = still.animate(
-            [
-              { transform: `${base} perspective(1400px) rotateY(0deg)`, opacity: 1 },
-              { transform: `${base} perspective(1400px) rotateY(-80deg)`, opacity: 0.4 },
-            ],
-            { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
-          )
-          turnAnim.onfinish = () => { if (!disposed) finish(i) }
-        } else {
-          // Backward: the previous page folds back over the current page from the left spine.
-          slideIn.style.zIndex = '3'
-          still.style.zIndex = '1'
-          turnAnim = slideIn.animate(
-            [
-              { transform: `${base} perspective(1400px) rotateY(-80deg)`, opacity: 0.4 },
-              { transform: `${base} perspective(1400px) rotateY(0deg)`, opacity: 1 },
-            ],
-            { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
-          )
-          turnAnim.onfinish = () => { if (!disposed) finish(i) }
-        }
-      }
-      simpleShowRef.current = turnTo
-      showStill(pageIdxRef.current)
-      setReady(true)
-      return () => {
-        simpleShowRef.current = null
-        turnAnim?.cancel()
-        host.remove()
-        setReady(false)
-      }
-    }
-
     soundRef.current = readSoundPref()
     setSoundOn(soundRef.current)
 
@@ -356,7 +295,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         height: Math.round(pageW * ratio),
         size: 'fixed',
         showCover: true, // first page is a cover shown alone, like a printed book
-        usePortrait: true, // single-page layout; the host width above keeps it from spreading
+        usePortrait: !wide, // phones: single page; wide screens: two-page spread
         startPage: pageIdxRef.current,
         drawShadow: true,
         maxShadowOpacity: 0.5,
@@ -483,8 +422,8 @@ export default function Viewer({ flipbook, pages }: Props) {
   // 5. Keyboard arrows (desktop / tablet with keyboard).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') stepBy(1)
-      if (e.key === 'ArrowLeft') stepBy(-1)
+      if (e.key === 'ArrowRight') bookRef.current?.flipNext()
+      if (e.key === 'ArrowLeft') bookRef.current?.flipPrev()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -500,7 +439,8 @@ export default function Viewer({ flipbook, pages }: Props) {
   const onAreaUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const s = swipeStart.current
     swipeStart.current = null
-    if (!s || (!bookRef.current && !simpleShowRef.current) || zoomIdx !== null) return
+    const book = bookRef.current
+    if (!s || !book || zoomIdx !== null) return
     const dx = e.clientX - s.x
     const dy = e.clientY - s.y
     if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) {
@@ -512,8 +452,10 @@ export default function Viewer({ flipbook, pages }: Props) {
       const forward = dx < 0
       // Wait one tick: page-flip handles the same pointerup on window after this React handler.
       window.setTimeout(() => {
-        if (pageIdxRef.current !== s.idx) return
-        stepBy(forward ? 1 : -1)
+        if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
+        if (forward) book.flipNext()
+        else if (isTouchUI()) slidePrevRef.current?.()
+        else book.flipPrev()
       }, 0)
     }
   }
@@ -529,26 +471,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
   }
 
-  const goTo = (i: number) => {
-    if (simpleShowRef.current) {
-      const dir = Math.sign(i - pageIdxRef.current)
-      pageIdxRef.current = i
-      setPageIdx(i)
-      simpleShowRef.current(i, dir)
-      return
-    }
-    bookRef.current?.turnToPage(i)
-  }
-  const stepBy = (d: number) => {
-    if (simpleShowRef.current) {
-      const n = Math.min(total - 1, Math.max(0, pageIdxRef.current + d))
-      if (n !== pageIdxRef.current) goTo(n)
-      return
-    }
-    if (d > 0) bookRef.current?.flipNext()
-    else if (isTouchUI()) slidePrevRef.current?.()
-    else bookRef.current?.flipPrev()
-  }
+  const goTo = (i: number) => bookRef.current?.turnToPage(i)
   const hasPages = total > 0
   const canPrev = pageIdx > 0
   const canNext = pageIdx < total - 1
@@ -686,7 +609,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             <button
               type="button"
               className="nav-btn"
-              onClick={() => stepBy(-1)}
+              onClick={() => (isTouchUI() ? slidePrevRef.current?.() : bookRef.current?.flipPrev())}
               disabled={!canPrev || !ready}
               aria-label="이전 페이지"
             >
@@ -701,7 +624,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             <button
               type="button"
               className="nav-btn"
-              onClick={() => stepBy(1)}
+              onClick={() => bookRef.current?.flipNext()}
               disabled={!canNext || !ready}
               aria-label="다음 페이지"
             >
