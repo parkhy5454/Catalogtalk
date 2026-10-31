@@ -40,7 +40,7 @@ export default function DashboardPage() {
     <main className="container home-fit">
       <section className="intro-card" aria-label="카탈로그톡 소개">
         <div className="intro-badge">CATALOGTALK</div>
-        <h1 className="intro-title"><span>PDF를</span><span><em>플립북으로</em></span><span>견적</span><span>주문까지</span></h1>
+        <h1 className="intro-title"><span>PDF를</span><span><em>플립북</em>으로</span><span>견적·주문까지</span></h1>
         <p className="intro-sub">책처럼 넘겨 보는 카탈로그를 만들고, 견적·주문까지 받으세요.</p>
         <ol className="intro-steps">
           <li><span className="intro-num">1</span><span>PDF 올리면 플립북 링크 바로 생성</span></li>
