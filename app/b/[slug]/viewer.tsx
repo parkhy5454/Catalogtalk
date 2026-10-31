@@ -122,7 +122,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   const areaRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<PageFlip | null>(null)
   // Wide screens show one page at a time as a still image (no curl); this shows a given page.
-  const simpleShowRef = useRef<((i: number) => void) | null>(null)
+  const simpleShowRef = useRef<((i: number, dir: number) => void) | null>(null)
   const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
   const skipFlipSound = useRef(false) // a slide-in already played its sound
   const soundRef = useRef(true)
@@ -284,13 +284,63 @@ export default function Viewer({ flipbook, pages }: Props) {
     area.appendChild(host)
 
     if (wide) {
-      // Wide screens: one page at a time as a still image, so neighbouring pages never show
-      // beside it. Arrows, keys and thumbnails move between pages.
-      simpleShowRef.current = (i: number) => showStill(i)
+      // Wide screens: one page at a time, turned with a page-fold animation between two stills,
+      // so neighbouring pages never show beside the current one.
+      const origin = 'left center'
+      const base = 'translate(-50%, -50%)'
+      let turnAnim: Animation | null = null
+      still.style.transformOrigin = origin
+      slideIn.style.transformOrigin = origin
+      slideIn.style.display = 'none'
+      const finish = (i: number) => {
+        turnAnim = null
+        still.style.zIndex = ''
+        slideIn.style.display = 'none'
+        showStill(i)
+      }
+      const turnTo = (i: number, dir: number) => {
+        if (turnAnim) turnAnim.finish() // a quick second press completes the running turn first
+        if (dir === 0 || !urls[i]) {
+          showStill(i)
+          return
+        }
+        const cur = pageIdxRef.current
+        if (cur === i) return
+        if (soundRef.current) playPageTurn()
+        slideIn.src = urls[i] ?? ''
+        slideIn.style.display = 'block'
+        if (dir > 0) {
+          // Forward: the new page lies underneath; the current page folds away to the left.
+          slideIn.style.zIndex = '1'
+          still.style.zIndex = '3'
+          turnAnim = still.animate(
+            [
+              { transform: `${base} perspective(1400px) rotateY(0deg)`, opacity: 1 },
+              { transform: `${base} perspective(1400px) rotateY(-80deg)`, opacity: 0.4 },
+            ],
+            { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
+          )
+          turnAnim.onfinish = () => { if (!disposed) finish(i) }
+        } else {
+          // Backward: the previous page folds back over the current page from the left spine.
+          slideIn.style.zIndex = '3'
+          still.style.zIndex = '1'
+          turnAnim = slideIn.animate(
+            [
+              { transform: `${base} perspective(1400px) rotateY(-80deg)`, opacity: 0.4 },
+              { transform: `${base} perspective(1400px) rotateY(0deg)`, opacity: 1 },
+            ],
+            { duration: 480, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
+          )
+          turnAnim.onfinish = () => { if (!disposed) finish(i) }
+        }
+      }
+      simpleShowRef.current = turnTo
       showStill(pageIdxRef.current)
       setReady(true)
       return () => {
         simpleShowRef.current = null
+        turnAnim?.cancel()
         host.remove()
         setReady(false)
       }
@@ -481,9 +531,10 @@ export default function Viewer({ flipbook, pages }: Props) {
 
   const goTo = (i: number) => {
     if (simpleShowRef.current) {
+      const dir = Math.sign(i - pageIdxRef.current)
       pageIdxRef.current = i
       setPageIdx(i)
-      simpleShowRef.current(i)
+      simpleShowRef.current(i, dir)
       return
     }
     bookRef.current?.turnToPage(i)
