@@ -1768,3 +1768,8 @@ body {
 .home-fit .intro-steps {
   margin-top: 24px;
 }
+
+/* Home: space between the CATALOGTALK badge and the title */
+.home-fit .intro-title {
+  margin-top: 16px;
+}
