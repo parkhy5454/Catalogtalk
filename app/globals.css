@@ -1706,3 +1706,11 @@ body {
   justify-content: space-between;
   align-items: baseline;
 }
+
+/* Home: deep navy accents on the yellow card instead of plain black */
+.home-fit .intro-badge,
+.home-fit .intro-num,
+.home-fit .intro-cta {
+  background: #1d2b53;
+  color: #ffe500;
+}
