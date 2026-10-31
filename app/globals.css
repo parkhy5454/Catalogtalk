@@ -1681,6 +1681,11 @@ body {
   margin-top: auto;
 }
 
+/* Home: the badge keeps its own width inside the stretched card */
+.home-fit .intro-badge {
+  align-self: flex-start;
+}
+
 /* Home: the subtitle stays on one line on phones */
 .home-fit .intro-sub {
   white-space: nowrap;
