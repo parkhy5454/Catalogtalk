@@ -43,11 +43,11 @@ export default function DashboardPage() {
         <h1 className="intro-title">PDF를 디지털 북으로<br />바꿔주는 <em>플립북</em></h1>
         <p className="intro-sub">책처럼 넘겨 보는 카탈로그를 만들고, 견적·주문까지 받으세요.</p>
         <ol className="intro-steps">
-          <li><span className="intro-num">1</span><span>PDF 또는 Word 파일을 올리면 상품을 자동으로 읽어요</span></li>
-          <li><span className="intro-num">2</span><span>플립북 링크와 모바일 카탈로그가 바로 생겨요</span></li>
-          <li><span className="intro-num">3</span><span>카톡·문자·QR로 공유해요</span></li>
-          <li><span className="intro-num">4</span><span>고객이 카탈로그에서 견적·주문을 요청해요</span></li>
-          <li><span className="intro-num">5</span><span>AI 영업 분석과 재방문 알림으로 다시 찾아오게 해요</span></li>
+          <li><span className="intro-num">1</span><span>PDF를 올리면 상품 자동 인식</span></li>
+          <li><span className="intro-num">2</span><span>플립북 링크 바로 생성</span></li>
+          <li><span className="intro-num">3</span><span>카톡·문자·QR로 공유</span></li>
+          <li><span className="intro-num">4</span><span>고객이 견적·주문 요청</span></li>
+          <li><span className="intro-num">5</span><span>영업 분석·재방문 알림</span></li>
         </ol>
         <Link href="/dashboard/new" className="btn intro-cta">새 플립북 만들기 →</Link>
       </section>
