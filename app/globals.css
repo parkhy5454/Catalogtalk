@@ -1672,6 +1672,20 @@ body {
   }
 }
 
+/* Home: the intro card takes the leftover height, so the button sits at the bottom and the
+   content fills the space between the header and the tab bar */
+.home-fit .intro-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.home-fit .intro-steps {
+  gap: 10px;
+}
+.home-fit .intro-cta {
+  margin-top: auto;
+}
+
 /* Home: the title stays on one line on phones */
 .home-fit .intro-title {
   white-space: nowrap;
