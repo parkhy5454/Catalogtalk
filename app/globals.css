@@ -1743,3 +1743,10 @@ body {
   grid-column: 1 / -1;
   margin: 8px 0 0;
 }
+
+/* Landing: the lower flow boxes and feature cards have no border and no hard shadow */
+.landing .flow-step,
+.landing .feature-card {
+  border: 0;
+  box-shadow: none;
+}
