@@ -121,6 +121,8 @@ export default function Viewer({ flipbook, pages }: Props) {
   const online = useOnline()
   const areaRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<PageFlip | null>(null)
+  // Wide screens show one page at a time as a still image (no curl); this shows a given page.
+  const simpleShowRef = useRef<((i: number) => void) | null>(null)
   const slidePrevRef = useRef<(() => void) | null>(null) // phone: back = slide-in, not curl
   const skipFlipSound = useRef(false) // a slide-in already played its sound
   const soundRef = useRef(true)
@@ -281,6 +283,19 @@ export default function Viewer({ flipbook, pages }: Props) {
     host.appendChild(slideIn)
     area.appendChild(host)
 
+    if (wide) {
+      // Wide screens: one page at a time as a still image, so neighbouring pages never show
+      // beside it. Arrows, keys and thumbnails move between pages.
+      simpleShowRef.current = (i: number) => showStill(i)
+      showStill(pageIdxRef.current)
+      setReady(true)
+      return () => {
+        simpleShowRef.current = null
+        host.remove()
+        setReady(false)
+      }
+    }
+
     soundRef.current = readSoundPref()
     setSoundOn(soundRef.current)
 
@@ -368,7 +383,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
     // urls is derived from pages (stable for a given flipbook)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ratio, total, flipbook.id, pageW])
+  }, [ratio, total, flipbook.id, pageW, wide])
 
   // 3. A view is counted server-side when the visit's first page row is recorded (record_view).
 
@@ -418,8 +433,8 @@ export default function Viewer({ flipbook, pages }: Props) {
   // 5. Keyboard arrows (desktop / tablet with keyboard).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') bookRef.current?.flipNext()
-      if (e.key === 'ArrowLeft') bookRef.current?.flipPrev()
+      if (e.key === 'ArrowRight') stepBy(1)
+      if (e.key === 'ArrowLeft') stepBy(-1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -467,7 +482,25 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
   }
 
-  const goTo = (i: number) => bookRef.current?.turnToPage(i)
+  const goTo = (i: number) => {
+    if (simpleShowRef.current) {
+      pageIdxRef.current = i
+      setPageIdx(i)
+      simpleShowRef.current(i)
+      return
+    }
+    bookRef.current?.turnToPage(i)
+  }
+  const stepBy = (d: number) => {
+    if (simpleShowRef.current) {
+      const n = Math.min(total - 1, Math.max(0, pageIdxRef.current + d))
+      if (n !== pageIdxRef.current) goTo(n)
+      return
+    }
+    if (d > 0) bookRef.current?.flipNext()
+    else if (isTouchUI()) slidePrevRef.current?.()
+    else bookRef.current?.flipPrev()
+  }
   const hasPages = total > 0
   const canPrev = pageIdx > 0
   const canNext = pageIdx < total - 1
@@ -480,6 +513,15 @@ export default function Viewer({ flipbook, pages }: Props) {
           <div className="viewer-meta">조회 {views.toLocaleString()}회</div>
         </div>
         <div className="viewer-top-actions">
+          {!signedIn && (
+            <button
+              type="button"
+              className="btn btn-dark viewer-pill"
+              onClick={() => (window.history.length > 1 ? window.history.back() : (window.location.href = '/'))}
+            >
+              ← 나가기
+            </button>
+          )}
           {signedIn && (
             <a className="btn btn-dark viewer-pill" href="/dashboard/folders">
               ← 목록
@@ -596,7 +638,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             <button
               type="button"
               className="nav-btn"
-              onClick={() => (isTouchUI() ? slidePrevRef.current?.() : bookRef.current?.flipPrev())}
+              onClick={() => stepBy(-1)}
               disabled={!canPrev || !ready}
               aria-label="이전 페이지"
             >
@@ -611,7 +653,7 @@ export default function Viewer({ flipbook, pages }: Props) {
             <button
               type="button"
               className="nav-btn"
-              onClick={() => bookRef.current?.flipNext()}
+              onClick={() => stepBy(1)}
               disabled={!canNext || !ready}
               aria-label="다음 페이지"
             >
