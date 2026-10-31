@@ -1606,3 +1606,68 @@ body {
 @media (min-width: 768px) {
   .landing .feature-card--wide { grid-column: 1 / -1; }
 }
+
+/* Home: the intro, stats and My Book link fit between the app header and the bottom tab bar
+   (no scrolling on a normal phone). Falls back to scrolling only on very short screens. */
+.dash-shell:has(.home-fit) {
+  padding-bottom: 0;
+}
+.home-fit {
+  height: calc(100vh - 56px - env(safe-area-inset-top) - 64px - env(safe-area-inset-bottom));
+  height: calc(100dvh - 56px - env(safe-area-inset-top) - 64px - env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  overflow-y: auto;
+}
+.home-fit .intro-card {
+  margin-bottom: 10px;
+  padding: 16px 16px 14px;
+}
+.home-fit .intro-badge {
+  font-size: 10px;
+  padding: 3px 9px;
+}
+.home-fit .intro-title {
+  margin: 8px 0 4px;
+  font-size: 20px;
+}
+.home-fit .intro-sub {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.home-fit .intro-steps {
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.home-fit .intro-steps li {
+  font-size: 13.5px;
+  gap: 10px;
+}
+.home-fit .intro-num {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+.home-fit .intro-cta {
+  padding: 12px 14px;
+}
+.home-fit .stats {
+  margin: 0 0 8px;
+}
+.home-fit .stat {
+  padding: 12px 12px;
+}
+.home-fit .stat-value {
+  font-size: 20px;
+}
+.home-fit .btn-block {
+  margin-top: 0;
+}
+@media (max-height: 700px) {
+  .home-fit .intro-sub {
+    display: none;
+  }
+}

@@ -37,7 +37,7 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <main className="container section">
+    <main className="container home-fit">
       <section className="intro-card" aria-label="카탈로그톡 소개">
         <div className="intro-badge">CATALOGTALK</div>
         <h1 className="intro-title">PDF를 디지털 북으로<br />바꿔주는 <em>플립북</em></h1>
