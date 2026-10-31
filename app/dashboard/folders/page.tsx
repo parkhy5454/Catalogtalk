@@ -429,8 +429,8 @@ export default function MyBookPage() {
 
   const totalViews = flipbooks.reduce((s, f) => s + (f.views || 0), 0)
   return (
-    <main className="container section">
-      <h1 className="panel-title" style={{ margin: '4px 4px 14px', fontSize: 22 }}>My Book</h1>
+    <main className="container section" style={{ paddingTop: 8 }}>
+      <h1 className="panel-title" style={{ margin: '0 4px 12px', fontSize: 22 }}>My Book</h1>
 
       {(pull > 0 || refreshing) && (
         <div className="ptr ptr-fixed" style={{ height: refreshing ? 44 : pull }} role="status">
