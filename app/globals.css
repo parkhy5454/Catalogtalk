@@ -1617,8 +1617,8 @@ body {
   height: calc(100dvh - 56px - env(safe-area-inset-top) - 64px - env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding-top: 8px;
+  justify-content: flex-start;
+  padding-top: 4px;
   padding-bottom: 8px;
   overflow-y: auto;
 }
