@@ -1758,3 +1758,8 @@ body {
     font-size: 13px;
   }
 }
+
+/* Home: the title is larger and still spreads across the card in one line */
+.home-fit .intro-title {
+  font-size: 20px;
+}
