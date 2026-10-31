@@ -1699,3 +1699,10 @@ body {
   white-space: nowrap;
   font-size: 17px;
 }
+
+/* Home: the one-line title spreads its words across the full card width */
+.home-fit .intro-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
