@@ -1686,6 +1686,14 @@ body {
   margin-top: auto;
 }
 
+/* Home: the subtitle stays on one line on phones */
+.home-fit .intro-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
 /* Home: the title stays on one line on phones */
 .home-fit .intro-title {
   white-space: nowrap;
