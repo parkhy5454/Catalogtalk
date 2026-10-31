@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { playPageTurn, unlockAudio } from '@/lib/flipbook/sound'
+import { playPageTurn, preloadPageTurn, unlockAudio } from '@/lib/flipbook/sound'
 import type { FlipbookPublic, PageImage } from '@/lib/flipbook/types'
 import type { PageFlip } from 'page-flip'
 import ZoomView from './zoom-view'
@@ -418,6 +418,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   // Browsers allow page-turn sound only after a user gesture. Any tap or key press on the
   // viewer (buttons and arrow keys included, not only the book area) unlocks it.
   useEffect(() => {
+    preloadPageTurn()
     const unlock = () => unlockAudio()
     window.addEventListener('pointerdown', unlock, { passive: true })
     window.addEventListener('keydown', unlock)

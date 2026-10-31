@@ -51,6 +51,13 @@ function makeRustle(c: AudioContext): AudioBuffer {
   return buffer
 }
 
+// Loads the recorded clip as soon as the viewer opens, so the first page turn already uses it
+// (fetching and decoding do not need a user gesture; only playing does).
+export function preloadPageTurn() {
+  const c = getContext()
+  if (c) loadClip(c)
+}
+
 export function unlockAudio() {
   const c = getContext()
   if (!c) return
