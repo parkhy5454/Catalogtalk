@@ -450,8 +450,7 @@ export default function Viewer({ flipbook, pages }: Props) {
   const onAreaUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const s = swipeStart.current
     swipeStart.current = null
-    const book = bookRef.current
-    if (!s || !book || zoomIdx !== null) return
+    if (!s || (!bookRef.current && !simpleShowRef.current) || zoomIdx !== null) return
     const dx = e.clientX - s.x
     const dy = e.clientY - s.y
     if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) {
@@ -463,10 +462,8 @@ export default function Viewer({ flipbook, pages }: Props) {
       const forward = dx < 0
       // Wait one tick: page-flip handles the same pointerup on window after this React handler.
       window.setTimeout(() => {
-        if (pageIdxRef.current !== s.idx || bookRef.current !== book) return
-        if (forward) book.flipNext()
-        else if (isTouchUI()) slidePrevRef.current?.()
-        else book.flipPrev()
+        if (pageIdxRef.current !== s.idx) return
+        stepBy(forward ? 1 : -1)
       }, 0)
     }
   }
