@@ -1666,11 +1666,6 @@ body {
 .home-fit .btn-block {
   margin-top: 0;
 }
-@media (max-height: 700px) {
-  .home-fit .intro-sub {
-    display: none;
-  }
-}
 
 /* Home: the intro card takes the leftover height, so the button sits at the bottom and the
    content fills the space between the header and the tab bar */
