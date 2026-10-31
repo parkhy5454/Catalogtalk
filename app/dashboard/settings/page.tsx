@@ -66,10 +66,11 @@ export default function SettingsPage() {
         </div>
 
         <div className="info-box" style={{ marginBottom: 16 }}>
-          <div className="info-label">계정</div>
-          <div className="info-value">{name || '이름 미입력'}</div>
-          <div className="info-label" style={{ marginTop: 8 }}>이메일</div>
-          <div className="info-value truncate" style={{ fontWeight: 500 }}>{email || '-'}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <span className="info-label">계정</span>
+            <span className="info-value">{name || '이름 미입력'}</span>
+            <span className="info-value truncate" style={{ fontWeight: 500, flex: '1 1 160px', minWidth: 0 }}>{email || '-'}</span>
+          </div>
         </div>
 
         <nav className="menu-list" aria-label="설정 메뉴">
