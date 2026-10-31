@@ -230,11 +230,12 @@ export default function Viewer({ flipbook, pages }: Props) {
   }, [ratio, total])
 
   // Page width in CSS px, rounded so tiny resizes do not rebuild the book.
-  // Phones: one page at a time. Wide screens: a two-page spread, like an open printed book.
+  // Always one page at a time (phones and tablets alike); the book is kept narrower than
+  // two pages so page-flip never switches to a two-page spread.
   const pageW = (() => {
     if (!box || ratio === null || box.w <= 0 || box.h <= 0) return null
     const byHeight = box.h / ratio
-    const w = Math.min(wide ? box.w / 2 : box.w, byHeight)
+    const w = Math.min(box.w, byHeight)
     return Math.max(120, Math.floor(w / 8) * 8)
   })()
 
@@ -249,7 +250,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     const host = document.createElement('div')
     host.className = 'book-host'
     // Narrow host = one-page layout. Centered horizontally inside the area.
-    host.style.width = `${wide ? pageW * 2 : pageW}px`
+    host.style.width = `${pageW}px`
     host.style.left = '50%'
     host.style.right = 'auto'
     host.style.transform = 'translateX(-50%)'
@@ -263,11 +264,6 @@ export default function Viewer({ flipbook, pages }: Props) {
     still.style.height = `${Math.round(pageW * ratio)}px`
     host.appendChild(still)
     const showStill = (i: number) => {
-      // A spread is drawn by the book itself, so the single-page still is not used there.
-      if (wide) {
-        still.style.display = 'none'
-        return
-      }
       still.src = urls[i] ?? ''
       still.style.display = 'block'
     }
@@ -295,7 +291,7 @@ export default function Viewer({ flipbook, pages }: Props) {
         height: Math.round(pageW * ratio),
         size: 'fixed',
         showCover: true, // first page is a cover shown alone, like a printed book
-        usePortrait: !wide, // phones: single page; wide screens: two-page spread
+        usePortrait: true, // single-page layout; the host width above keeps it from spreading
         startPage: pageIdxRef.current,
         drawShadow: true,
         maxShadowOpacity: 0.5,
@@ -372,7 +368,7 @@ export default function Viewer({ flipbook, pages }: Props) {
     }
     // urls is derived from pages (stable for a given flipbook)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ratio, total, flipbook.id, pageW, wide])
+  }, [ratio, total, flipbook.id, pageW])
 
   // 3. A view is counted server-side when the visit's first page row is recorded (record_view).
 
